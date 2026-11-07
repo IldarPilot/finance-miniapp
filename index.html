@@ -40,7 +40,7 @@ function history(){let rows=state.rows.filter(t=>(state.filter==='all'||(state.f
 function drafts(){
  const batches=state.textBatches||[];
  const photos=state.drafts||[];
- let view='<h1>Документы</h1><div class="sub" style="margin:9px 0 20px">Бот уже разобрал покупки. Исправлять нужно только при необходимости.</div>';
+ let view='<div class="between"><h1>Документы</h1><button class="txtlink" onclick="openCatalog()">⚙ Категории и места</button></div><div class="sub" style="margin:9px 0 20px">Бот уже разобрал покупки. Исправлять нужно только при необходимости.</div>';
  if(batches.length){
    view+='<div class="sectiontitle"><h2>Списки покупок</h2><span class="sub">'+batches.length+' на проверке</span></div><div class="surface" style="padding:0 15px">'+
    batches.map(b=>{
@@ -162,7 +162,7 @@ async function openTextBatch(id,expanded=-1){
     '<div class="surface smallcard" style="margin:14px 0"><div class="kicker">К сохранению</div>'+
     '<div class="number" style="font-size:25px;margin:4px 0">'+fmt(total)+'</div>'+
     '<div class="sub">'+purchases.length+' покупок · '+transfers.length+' переводов · '+(items.length-purchases.length-transfers.length)+' исключено</div></div>'+
-    '<div class="note">Бот предложил категории автоматически. Нажми на товар, только если хочешь что-то исправить.</div>';
+    '<div class="note">Бот предложил категории автоматически. Нажми на товар, только если хочешь что-то исправить.</div>'+  '<button class="txtlink" style="margin-top:9px" onclick="openCatalog()">＋ Добавить категорию или место</button>';
   for(const [category,entries] of groups)html+=batchEditorGroup(id,category,entries,expanded);
   if(separate.length)html+=batchEditorGroup(id,'__separate__',separate,expanded);
   html+='<div style="display:grid;gap:10px;margin-top:20px">'+
