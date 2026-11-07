@@ -327,7 +327,25 @@ async function deleteTransfer(id){
 }
 async function deleteTx(id){if(!confirm('Удалить эту покупку из истории и аналитики?'))return;try{let x=await api('delete-start',{action:'one',id});let y=await api('delete-confirm',{intentId:x.id});if(y.status!=='ok')throw Error('Не удалось удалить запись');closeModal();await load();toast('Покупка удалена')}catch(e){toast(e.message)}}
 async function clearHistory(){if(!confirm('Очистить всю историю расходов? Все ранее сохранённые покупки будут скрыты из статистики.'))return;if(prompt('Для подтверждения введи ОЧИСТИТЬ')!=='ОЧИСТИТЬ')return;try{const x=await api('delete-start',{action:'all'}),y=await api('delete-confirm',{intentId:x.id});if(y.status!=='ok')throw Error('Очистка не выполнена');await load();toast('История очищена')}catch(e){toast(e.message)}}
-function openAdd(){sheet(`<div class="between"><h2>Новый расход</h2><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><div style="margin-top:22px"><label class="formlabel">Сумма в рублях</label><input class="input" id="newamount" inputmode="decimal" placeholder="Например, 350,50"/><label class="formlabel">Описание</label><input class="input" id="newdesc" placeholder="Кофе, такси, продукты..."/><label class="formlabel">Категория</label><select class="input" id="newcat">${categoryOptions().map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select><label class="formlabel">Где куплено</label><select class="input" id="newplace"><option value="auto">Определить автоматически</option>${(state.places||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select><button class="button positive full" onclick="saveManual()">Сохранить расход</button><div class="footerhint">Фото чека или скриншот заказа отправляй прямо в чат с ботом.</div></div>`)}
+
+function suggestManual(){
+ const desc=String(el('newdesc')?.value||'').normalize('NFKC').toLocaleLowerCase('ru-RU').replace(/\s+/g,' ').trim();
+ if(!desc)return;
+ const sorted=[...(state.rules||[])].filter(x=>x.enabled).sort((a,b)=>
+  (b.match_type==='exact'?1:0)-(a.match_type==='exact'?1:0)||b.phrase.length-a.phrase.length);
+ for(const type of ['category','place']){
+  const select=el(type==='category'?'newcat':'newplace');
+  if(!select||select.dataset.touched==='1')continue;
+  const matched=sorted.find(rule=>{
+   if(rule.target_type!==type)return false;
+   const phrase=String(rule.phrase).normalize('NFKC').toLocaleLowerCase('ru-RU').replace(/\s+/g,' ').trim();
+   return phrase&&(rule.match_type==='exact'?desc===phrase:desc.includes(phrase));
+  });
+  if(matched)select.value=matched.target_id;
+ }
+}
+
+function openAdd(){sheet(`<div class="between"><h2>Новый расход</h2><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><div style="margin-top:22px"><label class="formlabel">Сумма в рублях</label><input class="input" id="newamount" inputmode="decimal" placeholder="Например, 350,50"/><label class="formlabel">Описание</label><input class="input" id="newdesc" oninput="suggestManual()" placeholder="Кофе, такси, продукты..."/><label class="formlabel">Категория</label><select class="input" id="newcat" onchange="this.dataset.touched='1'">${categoryOptions().map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select><label class="formlabel">Где куплено</label><select class="input" id="newplace" onchange="this.dataset.touched='1'"><option value="auto">Определить автоматически</option>${(state.places||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select><button class="button positive full" onclick="saveManual()">Сохранить расход</button><div class="footerhint">Если задано правило для описания, категория и магазин подставятся автоматически. Фото чека отправляй в чат с ботом.</div></div>`)}
 async function saveManual(){let amount=el('newamount')?.value.replace(',','.'),desc=el('newdesc')?.value.trim(),category=el('newcat')?.value;if(!Number.isFinite(+amount)||+amount<=0||!desc){toast('Укажи корректную сумму и описание');return}try{await api('manual',{amount:+amount,description:desc,category,place:el('newplace')?.value||'auto'});closeModal();state.tab='history';await load();toast('Расход добавлен')}catch(e){toast(e.message)}}
 async function refreshSilent(){let d=await api('state?month='+encodeURIComponent(state.month));state.rows=d.transactions||[];state.drafts=d.drafts||[];state.textBatches=d.batches||[];state.places=d.places||[];state.categories=d.categories||[];state.rules=d.rules||[];state.transfers=d.transfers||[];state.report=d.report||{currencies:[],categories:[],merchants:[]};render()}
 load();
