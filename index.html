@@ -19,7 +19,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const fmt=(minor,c='RUB')=>{const n=(Number(minor)||0)/100;return new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2,style:'currency',currency:c==='RUB'?'RUB':c}).format(n)};
 const shortDate=v=>{try{return new Date(v+'T12:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}catch{return v}};
 const safeMonth=()=>{const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit'}).formatToParts(new Date());return parts.find(p=>p.type==='year').value+'-'+parts.find(p=>p.type==='month').value};
-const state={tab:'home',month:safeMonth(),loading:true,rows:[],drafts:[],places:[],placeFocus:null,report:{currencies:[],categories:[],merchants:[],places:[],place_categories:[],transfers:[]},search:'',filter:'all',selected:null};
+const state={tab:'home',month:safeMonth(),loading:true,rows:[],drafts:[],places:[],transfers:[],placeFocus:null,report:{currencies:[],categories:[],merchants:[],places:[],place_categories:[],transfers:[]},search:'',filter:'all',selected:null};
 const el=id=>document.getElementById(id);const page=()=>el('app');
 function toast(msg){el('toast').innerHTML=`<div class="toast">${esc(msg)}</div>`;setTimeout(()=>el('toast').innerHTML='',3500)};
 async function api(path,body){if(!AUTH)throw Error('Открой приложение из Telegram');let res=await fetch(new URL('https://lcbazccnalzbvfvcxyoe.supabase.co/functions/v1/finance-app/api/'+path),{method:body?'POST':'GET',headers:{'x-telegram-init-data':AUTH,...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,cache:'no-store'});let v=await res.json().catch(()=>({error:'Некорректный ответ сервера'}));if(!res.ok)throw Error(v.error||'Ошибка соединения');return v}
@@ -64,12 +64,21 @@ function placeAnalytics(){
    '<div class="grow itemname">'+(x.transfer_kind==='external'?'Другим людям':'Между своими счетами')+'</div>'+
    '<div class="itemprice">'+fmt(x.amount_minor)+'</div></div>'
  ).join('')||'<div class="empty">Подтверждённых переводов пока нет</div>')+'</div>';
+ const details=state.transfers||[];
+ if(details.length){
+   body+='<details class="surface" style="padding:14px;margin-top:10px"><summary style="cursor:pointer;font-weight:600">История переводов · '+details.length+'</summary>'+
+    details.map(t=>'<div class="listitem">'+
+      '<div class="grow"><div class="itemname">'+esc(t.title)+'</div>'+
+      '<div class="line2">'+esc(shortDate(t.occurred_on))+' · '+(t.transfer_kind==='external'?'Другому человеку':'Между своими счетами')+'</div></div>'+
+      '<div class="itemprice">'+fmt(t.amount_minor,t.currency)+'</div>'+
+      '<button class="iconbtn" aria-label="Удалить перевод" data-id="'+esc(t.id)+'" onclick="deleteTransfer(this.dataset.id)">✕</button></div>').join('')+'</details>';
+ }
  body+='<div class="footerhint">Переводы показаны отдельно и не прибавляются к сумме покупок. Если место не удалось определить, выбери его в карточке покупки.</div>';
  return body;
 }
 function analytics(){let r=state.report.categories.filter(x=>x.currency==='RUB'),max=Math.max(...r.map(x=>Number(x.amount_minor)),1);return `<h1>Аналитика</h1>${monthpicker()}<section class="surface hero"><div class="kicker">Личные расходы за месяц</div><div class="heroamount">${fmt(anyRUB()?.amount_minor||0)}</div><div class="sub">По категориям, площадкам и переводам</div></section><div class="sectiontitle"><h2>Категории</h2></div>${r.length?r.map(x=>catBar(x.category,Number(x.amount_minor),max)).join(''):'<div class="surface empty">Недостаточно данных</div>'}${placeAnalytics()}<div class="sectiontitle"><h2>Магазины</h2></div><div class="surface" style="padding:0 15px">${state.report.merchants.filter(x=>x.currency==='RUB').slice(0,10).map(x=>`<div class="listitem"><div class="avatar">${shopIcon(x.merchant)}</div><div class="grow itemname">${esc(x.merchant)}</div><div class="itemprice">${fmt(x.amount_minor)}</div></div>`).join('')||'<div class="empty">Нет данных</div>'}</div><div class="footerhint">Валюты не конвертируются автоматически. Доли друзей не включаются в личные расходы.</div>`}
 function render(){if(!AUTH){page().innerHTML=header()+'<div class="surface launchmsg"><h2>Открой внутри Telegram</h2><p class="fade">Для безопасности данные доступны только через меню твоего финансового бота.</p></div>';return;}if(state.loading){page().innerHTML=header()+'<div class="skeleton"></div>';return;}page().innerHTML=header()+({home:overview,history,drafts,analytics}[state.tab]||overview)();nav()}
-async function load(){if(!AUTH){render();return;}state.loading=true;render();try{const data=await api('state?month='+encodeURIComponent(state.month));state.rows=data.transactions||[];state.drafts=data.drafts||[];state.places=data.places||[];state.report=data.report||{currencies:[],categories:[],merchants:[]};state.loading=false;render()}catch(e){state.loading=false;page().innerHTML=header()+`<div class="surface empty">${esc(e.message)}<br><button class="button secondary" style="margin:12px" onclick="load()">Повторить</button></div>`}}
+async function load(){if(!AUTH){render();return;}state.loading=true;render();try{const data=await api('state?month='+encodeURIComponent(state.month));state.rows=data.transactions||[];state.drafts=data.drafts||[];state.places=data.places||[];state.transfers=data.transfers||[];state.report=data.report||{currencies:[],categories:[],merchants:[]};state.loading=false;render()}catch(e){state.loading=false;page().innerHTML=header()+`<div class="surface empty">${esc(e.message)}<br><button class="button secondary" style="margin:12px" onclick="load()">Повторить</button></div>`}}
 function tab(t){state.tab=t;render()}function setFilter(f){state.filter=f;render()}function changeMonth(offset){let y=+state.month.slice(0,4),m=+state.month.slice(5);let d=new Date(Date.UTC(y,m-1+offset,1));state.month=d.toISOString().slice(0,7);load()}
 function closeModal(){el('modal').innerHTML=''}
 function sheet(contents){el('modal').innerHTML=`<div class="sheetback" onclick="if(event.target===this)closeModal()"><div class="sheet"><div class="handle"></div>${contents}</div></div>`}
@@ -96,11 +105,19 @@ async function updateShare(id,index,mode){try{await api('share',{id,index,mode})
 async function markPaid(id){if(!confirm('Подтверждаешь, что заказ действительно оплачен?'))return;try{const result=await api('paid',{id});if(result.status!=='ok')throw Error('Статус оплаты не изменён');await openDraft(id)}catch(e){toast(e.message)}}
 async function confirmDraft(id){try{const result=await api('confirm',{id});if(result.status!=='ok'&&result.status!=='duplicate')throw Error('Документ не подтверждён: '+String(result.status));closeModal();state.tab='history';await load();toast('Покупка сохранена')}catch(e){toast(e.message)}}
 async function cancelDraft(id){if(!confirm('Отменить этот черновик?'))return;try{await api('cancel',{id});closeModal();await load();toast('Черновик отменён')}catch(e){toast(e.message)}}
+async function deleteTransfer(id){
+ if(!confirm('Удалить этот перевод из истории и статистики?'))return;
+ try{
+  const result=await api('transfer-delete',{id});
+  if(result.status!=='ok')throw Error('Перевод не найден');
+  await load();toast('Перевод удалён');
+ }catch(e){toast(e.message)}
+}
 async function deleteTx(id){if(!confirm('Удалить эту покупку из истории и аналитики?'))return;try{let x=await api('delete-start',{action:'one',id});let y=await api('delete-confirm',{intentId:x.id});if(y.status!=='ok')throw Error('Не удалось удалить запись');closeModal();await load();toast('Покупка удалена')}catch(e){toast(e.message)}}
 async function clearHistory(){if(!confirm('Очистить всю историю расходов? Все ранее сохранённые покупки будут скрыты из статистики.'))return;if(prompt('Для подтверждения введи ОЧИСТИТЬ')!=='ОЧИСТИТЬ')return;try{const x=await api('delete-start',{action:'all'}),y=await api('delete-confirm',{intentId:x.id});if(y.status!=='ok')throw Error('Очистка не выполнена');await load();toast('История очищена')}catch(e){toast(e.message)}}
 function openAdd(){sheet(`<div class="between"><h2>Новый расход</h2><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><div style="margin-top:22px"><label class="formlabel">Сумма в рублях</label><input class="input" id="newamount" inputmode="decimal" placeholder="Например, 350,50"/><label class="formlabel">Описание</label><input class="input" id="newdesc" placeholder="Кофе, такси, продукты..."/><label class="formlabel">Категория</label><select class="input" id="newcat">${Object.entries(CATS).map(([k,n])=>`<option value="${k}">${esc(n)}</option>`).join('')}</select><label class="formlabel">Где куплено</label><select class="input" id="newplace"><option value="auto">Определить автоматически</option>${(state.places||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select><button class="button positive full" onclick="saveManual()">Сохранить расход</button><div class="footerhint">Фото чека или скриншот заказа отправляй прямо в чат с ботом.</div></div>`)}
 async function saveManual(){let amount=el('newamount')?.value.replace(',','.'),desc=el('newdesc')?.value.trim(),category=el('newcat')?.value;if(!Number.isFinite(+amount)||+amount<=0||!desc){toast('Укажи корректную сумму и описание');return}try{await api('manual',{amount:+amount,description:desc,category,place:el('newplace')?.value||'auto'});closeModal();state.tab='history';await load();toast('Расход добавлен')}catch(e){toast(e.message)}}
-async function refreshSilent(){let d=await api('state?month='+encodeURIComponent(state.month));state.rows=d.transactions||[];state.drafts=d.drafts||[];state.places=d.places||[];state.report=d.report||{currencies:[],categories:[],merchants:[]};render()}
+async function refreshSilent(){let d=await api('state?month='+encodeURIComponent(state.month));state.rows=d.transactions||[];state.drafts=d.drafts||[];state.places=d.places||[];state.transfers=d.transfers||[];state.report=d.report||{currencies:[],categories:[],merchants:[]};render()}
 load();
 
 </script></body></html>
