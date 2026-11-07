@@ -13,7 +13,7 @@ const CATS={groceries:'Продукты',restaurants:'Кафе и рестора
 const shareNames={mine:'Моё',shared2:'На двоих',shared3:'На троих',shared4:'На четверых',others:'Не моё'};
 const PLACE_KIND_LABELS={marketplace:'Маркетплейсы',grocery_delivery:'Доставка продуктов',offline:'Офлайн-магазины',food:'Кафе и рестораны',service:'Услуги и платежи',unknown:'Не определено'};
 const PLACE_FALLBACK={unknown:'Не определено',ozon:'Ozon',wildberries:'Wildberries',aliexpress:'AliExpress',yandex_market:'Яндекс Маркет',avito:'Авито',samokat:'Самокат',yandex_lavka:'Яндекс Лавка',ozon_fresh:'Ozon Fresh',offline_store:'Офлайн-магазины',cafe:'Кафе и рестораны',other_online:'Другие онлайн-магазины',services:'Услуги'};
-function placeLabel(id){return state.places.find(p=>p.id===id)?.name||PLACE_FALLBACK[id]||'Не определено'}
+function placeLabel(id){if(!id||id==='unknown')return 'Место не указано';return state.places.find(p=>p.id===id)?.name||PLACE_FALLBACK[id]||'Место не указано'}
 function categoryLabel(id){return state.categories.find(c=>c.id===id)?.name||CATS[id]||'Прочее'}
 function categoryOptions(){
  return (state.categories.length?state.categories:Object.entries(CATS).map(([id,name])=>({id,name})));
@@ -63,13 +63,26 @@ function drafts(){
  if(!batches.length&&!photos.length)view+='<div class="surface empty">Нет покупок на проверке. Отправь чек, скриншот или список расходов в Telegram.</div>';
  return view+'<div class="note" style="margin-top:16px">Категории, площадки и типы операций можно изменить здесь. Сохранение — одним нажатием.</div>';
 }
+function openMissingPlaces(){
+ const missing=(state.rows||[]).filter(t=>t.currency==='RUB'&&(!t.place_id||t.place_id==='unknown'));
+ let out='<div class="between"><div><div class="kicker">Аналитика</div><h2>Место покупки</h2></div><button class="iconbtn" onclick="closeModal()">×</button></div>'+
+ '<div class="note" style="margin:14px 0">Категории уже учтены. Если помнишь магазин или сервис, открой покупку и выбери его. Если нет — можно оставить как есть.</div>';
+ out+=missing.length?'<div class="surface" style="padding:0 14px">'+missing.map(t=>
+  '<div class="listitem"><div class="avatar">📍</div><div class="grow" style="min-width:0"><div class="itemname">'+esc(t.note||t.merchant||'Покупка')+'</div>'+
+  '<div class="line2">'+esc(shortDate(t.occurred_on))+' · '+fmt(t.amount_minor,t.currency)+'</div></div>'+
+  '<button class="txtlink" data-id="'+esc(t.id)+'" onclick="tx(this.dataset.id)">Изменить</button></div>'
+ ).join('')+'</div>':'<div class="surface empty">За этот месяц таких покупок нет.</div>';
+ out+='<div class="footerhint">В карточке покупки можно также создать новое место.</div>';
+ sheet(out);
+}
 function placeAnalytics(){
  const all=(state.report.places||[]).filter(x=>x.currency==='RUB');
- const kinds=['marketplace','grocery_delivery','offline','food','service','unknown'];
- let body='<div class="sectiontitle"><h2>Где потрачено</h2></div>';
- if(!all.length)body+='<div class="surface empty">Покупок с определённой площадкой пока нет</div>';
+ const kinds=['marketplace','grocery_delivery','offline','food','service'];
+ const missing=all.find(x=>x.place_id==='unknown');
+ let body='<div class="sectiontitle"><h2>Где совершены покупки</h2></div>';
+ if(!all.length)body+='<div class="surface empty">Покупок за этот месяц пока нет</div>';
  for(const kind of kinds){
-   const items=all.filter(x=>x.kind===kind);
+   const items=all.filter(x=>x.kind===kind&&x.place_id!=='unknown');
    if(!items.length)continue;
    body+='<div class="footerhint" style="margin-top:14px;margin-bottom:6px">'+PLACE_KIND_LABELS[kind]+'</div>';
    body+='<div class="surface" style="padding:0 15px">'+items.map(x=>
@@ -79,12 +92,22 @@ function placeAnalytics(){
      '<div class="itemprice">'+fmt(x.amount_minor)+'</div></div>'
    ).join('')+'</div>';
  }
- const focus=all.find(x=>x.place_id===state.placeFocus);
+ const focus=all.find(x=>x.place_id===state.placeFocus&&x.place_id!=='unknown');
  if(focus){
    const parts=(state.report.place_categories||[]).filter(x=>x.currency==='RUB'&&x.place_id===focus.place_id);
    const max=Math.max(1,...parts.map(x=>Number(x.amount_minor)));
-   body+='<div class="surface" style="padding:15px;margin-top:12px"><div class="between"><strong>На что потрачено · '+esc(focus.place)+'</strong><button class="txtlink" onclick="state.placeFocus=null;render()">✕</button></div>'+
+   body+='<div class="surface" style="padding:15px;margin-top:12px"><div class="between"><strong>Категории покупок · '+esc(focus.place)+'</strong><button class="txtlink" onclick="state.placeFocus=null;render()">✕</button></div>'+
      '<div style="margin-top:12px">'+parts.map(x=>catBar(x.category,Number(x.amount_minor),max)).join('')+'</div></div>';
+ }
+ if(missing){
+   const parts=(state.report.place_categories||[]).filter(x=>x.currency==='RUB'&&x.place_id==='unknown');
+   const max=Math.max(1,...parts.map(x=>Number(x.amount_minor)));
+   body+='<div class="surface" style="padding:16px;margin-top:16px">'+
+     '<div class="between" style="gap:10px"><strong>📍 Место покупки не указано</strong><strong style="white-space:nowrap">'+fmt(missing.amount_minor)+'</strong></div>'+
+     '<div class="footerhint" style="margin:10px 0 12px">Для '+missing.count+' покупок неизвестен магазин или сервис. Категории при этом уже определены и учтены:</div>'+
+     parts.map(x=>catBar(x.category,Number(x.amount_minor),max)).join('')+
+     '<button class="button secondary full" style="margin-top:14px" onclick="openMissingPlaces()">Указать место покупки</button>'+
+     '</div>';
  }
  const transfers=(state.report.transfers||[]).filter(x=>x.currency==='RUB');
  body+='<div class="sectiontitle"><h2>Денежные переводы</h2></div>';
@@ -102,10 +125,10 @@ function placeAnalytics(){
       '<div class="itemprice">'+fmt(t.amount_minor,t.currency)+'</div>'+
       '<button class="iconbtn" aria-label="Удалить перевод" data-id="'+esc(t.id)+'" onclick="deleteTransfer(this.dataset.id)">✕</button></div>').join('')+'</details>';
  }
- body+='<div class="footerhint">Переводы показаны отдельно и не прибавляются к сумме покупок. Если место не удалось определить, выбери его в карточке покупки.</div>';
+ body+='<div class="footerhint">Переводы показаны отдельно и не прибавляются к сумме покупок. Если место покупки не указано, можно уточнить его, не меняя категорию расхода.</div>';
  return body;
 }
-function analytics(){let r=state.report.categories.filter(x=>x.currency==='RUB'),max=Math.max(...r.map(x=>Number(x.amount_minor)),1);return `<h1>Аналитика</h1>${monthpicker()}<section class="surface hero"><div class="kicker">Личные расходы за месяц</div><div class="heroamount">${fmt(anyRUB()?.amount_minor||0)}</div><div class="sub">По категориям, площадкам и переводам</div></section><div class="sectiontitle"><h2>Категории</h2></div>${r.length?r.map(x=>catBar(x.category,Number(x.amount_minor),max)).join(''):'<div class="surface empty">Недостаточно данных</div>'}${placeAnalytics()}<div class="sectiontitle"><h2>Магазины</h2></div><div class="surface" style="padding:0 15px">${state.report.merchants.filter(x=>x.currency==='RUB').slice(0,10).map(x=>`<div class="listitem"><div class="avatar">${shopIcon(x.merchant)}</div><div class="grow itemname">${esc(x.merchant)}</div><div class="itemprice">${fmt(x.amount_minor)}</div></div>`).join('')||'<div class="empty">Нет данных</div>'}</div><div class="footerhint">Валюты не конвертируются автоматически. Доли друзей не включаются в личные расходы.</div>`}
+function analytics(){let r=state.report.categories.filter(x=>x.currency==='RUB'),max=Math.max(...r.map(x=>Number(x.amount_minor)),1);return `<h1>Аналитика</h1>${monthpicker()}<section class="surface hero"><div class="kicker">Личные расходы за месяц</div><div class="heroamount">${fmt(anyRUB()?.amount_minor||0)}</div><div class="sub">По категориям, площадкам и переводам</div></section><div class="sectiontitle"><h2>На что потрачено · категории</h2></div>${r.length?r.map(x=>catBar(x.category,Number(x.amount_minor),max)).join(''):'<div class="surface empty">Недостаточно данных</div>'}${placeAnalytics()}<div class="sectiontitle"><h2>Описания покупок</h2></div><div class="surface" style="padding:0 15px">${state.report.merchants.filter(x=>x.currency==='RUB').slice(0,10).map(x=>`<div class="listitem"><div class="avatar">${shopIcon(x.merchant)}</div><div class="grow itemname">${esc(x.merchant)}</div><div class="itemprice">${fmt(x.amount_minor)}</div></div>`).join('')||'<div class="empty">Нет данных</div>'}</div><div class="footerhint">Валюты не конвертируются автоматически. Доли друзей не включаются в личные расходы.</div>`}
 function render(){if(!AUTH){page().innerHTML=header()+'<div class="surface launchmsg"><h2>Открой внутри Telegram</h2><p class="fade">Для безопасности данные доступны только через меню твоего финансового бота.</p></div>';return;}if(state.loading){page().innerHTML=header()+'<div class="skeleton"></div>';return;}page().innerHTML=header()+({home:overview,history,drafts,analytics}[state.tab]||overview)();nav()}
 async function load(){if(!AUTH){render();return;}state.loading=true;render();try{const data=await api('state?month='+encodeURIComponent(state.month));state.rows=data.transactions||[];state.drafts=data.drafts||[];state.textBatches=data.batches||[];state.places=data.places||[];state.categories=data.categories||[];state.rules=data.rules||[];state.transfers=data.transfers||[];state.report=data.report||{currencies:[],categories:[],merchants:[]};state.loading=false;render();if(!state.deepLinkOpened){const batch=new URLSearchParams(location.search).get('batch');state.deepLinkOpened=true;if(batch&&/^[0-9a-f-]{36}$/i.test(batch))await openTextBatch(batch)}}catch(e){state.loading=false;page().innerHTML=header()+`<div class="surface empty">${esc(e.message)}<br><button class="button secondary" style="margin:12px" onclick="load()">Повторить</button></div>`}}
 function tab(t){state.tab=t;render()}function setFilter(f){state.filter=f;render()}function changeMonth(offset){let y=+state.month.slice(0,4),m=+state.month.slice(5);let d=new Date(Date.UTC(y,m-1+offset,1));state.month=d.toISOString().slice(0,7);load()}
