@@ -265,16 +265,22 @@ function openCatalog(){
  '<div class="footerhint">Точное совпадение имеет приоритет перед поиском части слова. Правила применяются к новым покупкам, старые записи не изменяются.</div>';
  sheet(v);
 }
+function returnFromCatalog(){
+ const ctx=state.catalogContext;
+ if(ctx){state.catalogContext=null;return reopenPurchaseContext(ctx)}
+ openCatalog();
+}
 function newCatalog(kind,context=null){
  state.catalogContext=context;
+ state.placeTypePrevious='offline';
  const isCat=kind==='category';
- let v='<div class="between"><h2>'+(isCat?'Новая категория':'Новое место')+'</h2><button class="iconbtn" onclick="openCatalog()">×</button></div>'+
+ let v='<div class="between"><h2>'+(isCat?'Новая категория':'Новое место')+'</h2><button class="iconbtn" onclick="returnFromCatalog()">×</button></div>'+
  '<label class="formlabel">Название</label><input class="input" id="ct-name" maxlength="60" placeholder="'+(isCat?'Домашние животные':'Петрович')+'"/>';
  if(!isCat){
   const types=(state.placeTypes.length?state.placeTypes:
    [['offline','Офлайн-магазин'],['marketplace','Маркетплейс'],['grocery_delivery','Доставка продуктов'],
     ['food','Кафе и рестораны'],['service','Услуги и платежи'],['unknown','Другое']].map(([id,name])=>({id,name})));
-  v+='<label class="formlabel">Тип места</label><select class="input" id="ct-kind" onchange="if(this.value===\'__new__\')showInlinePlaceType()">'+
+  v+='<label class="formlabel">Тип места</label><select class="input" id="ct-kind" onchange="if(this.value===\'__new__\')showInlinePlaceType();else state.placeTypePrevious=this.value">'+
    types.map(t=>'<option value="'+esc(t.id)+'" '+(t.id==='offline'?'selected':'')+'>'+esc(t.name)+'</option>').join('')+
    '<option value="__new__">＋ Добавить свой тип…</option></select>'+
    '<button class="txtlink" style="display:block;margin:5px 0 12px;padding:6px 0" onclick="showInlinePlaceType()">＋ Создать новый тип места</button>'+
@@ -297,7 +303,7 @@ function newCatalog(kind,context=null){
  '<option value="merchant" '+(!isCat?'selected':'')+'>Названии магазина</option></select>'+
  '<label class="formlabel">Условие</label><select class="input" id="ct-match"><option value="contains">Содержит</option><option value="exact">Совпадает целиком</option></select>'+
  '<button class="button positive full" style="margin-top:17px" data-kind="'+kind+'" onclick="saveCatalog(this.dataset.kind)">'+(state.catalogContext?'Создать и выбрать':'Создать')+'</button>'+
- '<button class="button full" style="margin-top:8px" onclick="openCatalog()">Назад</button>';
+ '<button class="button full" style="margin-top:8px" onclick="returnFromCatalog()">Назад</button>';
  sheet(v);
 }
 
@@ -337,6 +343,7 @@ async function saveInlinePlaceType(){
 }
 
 async function reopenPurchaseContext(ctx){
+ if(ctx.source==='manual')return openAdd(state.manualValues||{});
  if(ctx.source==='batch')return openTextBatch(ctx.id,ctx.index);
  if(ctx.source==='draft')return openDraft(ctx.id);
  if(ctx.source==='saved')return tx(ctx.kind==='category'?ctx.parent:ctx.id);
@@ -356,7 +363,7 @@ async function saveCatalog(kind){
    catch(e){ruleWarning=e.message}
   }
   let applyWarning='';
-  if(context){
+  if(context&&context.source!=='manual'){
    try{
     let applied;
     if(context.source==='batch'){
@@ -374,8 +381,12 @@ async function saveCatalog(kind){
   }
   await refreshSilent();
   state.catalogContext=null;
-  if(context&&!applyWarning)await reopenPurchaseContext(context);
-  else openCatalog();
+  if(context&&!applyWarning){
+   if(context.source==='manual'){
+    state.manualValues={...state.manualValues,[kind==='category'?'category':'place']:created.record.id};
+   }
+   await reopenPurchaseContext(context);
+  }else openCatalog();
   if(applyWarning)toast('Категория создана, но покупку не удалось изменить: '+applyWarning);
   else if(ruleWarning)toast('Добавлено; правило не сохранилось: '+ruleWarning);
   else toast(context?'Создано и выбрано для покупки':'Добавлено'+(phrase?' с правилом':''));
@@ -471,7 +482,12 @@ function suggestManual(){
  }
 }
 
-function openAdd(){sheet(`<div class="between"><h2>Новый расход</h2><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><div style="margin-top:22px"><label class="formlabel">Сумма в рублях</label><input class="input" id="newamount" inputmode="decimal" placeholder="Например, 350,50"/><label class="formlabel">Описание</label><input class="input" id="newdesc" oninput="suggestManual()" placeholder="Кофе, такси, продукты..."/><label class="formlabel">Категория</label><select class="input" id="newcat" onchange="this.dataset.touched='1'">${categoryOptions().map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select><label class="formlabel">Где куплено</label><select class="input" id="newplace" onchange="this.dataset.touched='1'"><option value="auto">Определить автоматически</option>${(state.places||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select><button class="button positive full" onclick="saveManual()">Сохранить расход</button><div class="footerhint">Если задано правило для описания, категория и магазин подставятся автоматически. Фото чека отправляй в чат с ботом.</div></div>`)}
+function manualCreate(kind){
+ state.manualValues={amount:el('newamount')?.value||'',desc:el('newdesc')?.value||'',
+  category:el('newcat')?.value||'',place:el('newplace')?.value||'auto'};
+ newCatalog(kind,{source:'manual',kind});
+}
+function openAdd(values={}){sheet(`<div class="between"><h2>Новый расход</h2><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><div style="margin-top:22px"><label class="formlabel">Сумма в рублях</label><input class="input" id="newamount" inputmode="decimal" placeholder="Например, 350,50" value="${esc(values.amount||'')}"/><label class="formlabel">Описание</label><input class="input" id="newdesc" oninput="suggestManual()" placeholder="Кофе, такси, продукты..." value="${esc(values.desc||'')}"/><label class="formlabel">Категория</label><select class="input" id="newcat" onchange="if(this.value==='__new__')manualCreate('category');else this.dataset.touched='1'">${categoryOptions().map(c=>`<option value="${esc(c.id)}" ${c.id===values.category?'selected':''}>${esc(c.name)}</option>`).join('')}<option value="__new__">＋ Создать категорию…</option></select><button class="txtlink" style="margin:4px 0 10px;padding:6px 0" onclick="manualCreate('category')">＋ Своя категория</button><label class="formlabel">Где куплено</label><select class="input" id="newplace" onchange="if(this.value==='__new__')manualCreate('place');else this.dataset.touched='1'"><option value="auto" ${!values.place||values.place==='auto'?'selected':''}>Определить автоматически</option>${(state.places||[]).map(p=>`<option value="${esc(p.id)}" ${p.id===values.place?'selected':''}>${esc(p.name)}</option>`).join('')}<option value="__new__">＋ Создать место…</option></select><button class="txtlink" style="margin:4px 0 10px;padding:6px 0" onclick="manualCreate('place')">＋ Своё место</button><button class="button positive full" onclick="saveManual()">Сохранить расход</button><div class="footerhint">Если задано правило для описания, категория и магазин подставятся автоматически. Фото чека отправляй в чат с ботом.</div></div>`)}
 async function saveManual(){let amount=el('newamount')?.value.replace(',','.'),desc=el('newdesc')?.value.trim(),category=el('newcat')?.value;if(!Number.isFinite(+amount)||+amount<=0||!desc){toast('Укажи корректную сумму и описание');return}try{await api('manual',{amount:+amount,description:desc,category,place:el('newplace')?.value||'auto'});closeModal();state.tab='history';await load();toast('Расход добавлен')}catch(e){toast(e.message)}}
 async function refreshSilent(){let d=await api('state?month='+encodeURIComponent(state.month));state.rows=d.transactions||[];state.drafts=d.drafts||[];state.textBatches=d.batches||[];state.places=d.places||[];state.placeTypes=d.placeTypes||[];state.categories=d.categories||[];state.rules=d.rules||[];state.transfers=d.transfers||[];state.report=d.report||{currencies:[],categories:[],merchants:[]};render()}
 load();
