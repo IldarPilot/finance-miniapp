@@ -77,20 +77,30 @@ function openMissingPlaces(){
 }
 function placeAnalytics(){
  const all=(state.report.places||[]).filter(x=>x.currency==='RUB');
- const kinds=['marketplace','grocery_delivery','offline','food','service'];
+ const kinds=['marketplace','grocery_delivery','offline','food','service','unknown'];
  const missing=all.find(x=>x.place_id==='unknown');
  let body='<div class="sectiontitle"><h2>Где совершены покупки</h2></div>';
  if(!all.length)body+='<div class="surface empty">Покупок за этот месяц пока нет</div>';
  for(const kind of kinds){
    const items=all.filter(x=>x.kind===kind&&x.place_id!=='unknown');
    if(!items.length)continue;
-   body+='<div class="footerhint" style="margin-top:14px;margin-bottom:6px">'+PLACE_KIND_LABELS[kind]+'</div>';
-   body+='<div class="surface" style="padding:0 15px">'+items.map(x=>
-     '<div class="listitem" onclick="state.placeFocus=\''+esc(x.place_id)+'\';render()">'+
-     '<div class="avatar">'+(kind==='marketplace'?'📦':kind==='grocery_delivery'?'🛵':kind==='offline'?'🏬':kind==='food'?'☕':'📍')+'</div>'+
-     '<div class="grow"><div class="itemname">'+esc(x.place)+'</div><div class="line2">'+x.count+' покупок · подробнее</div></div>'+
-     '<div class="itemprice">'+fmt(x.amount_minor)+'</div></div>'
-   ).join('')+'</div>';
+   const byType=new Map();
+   for(const x of items){
+     const store=state.places.find(p=>p.id===x.place_id);
+     const type=state.placeTypes.find(t=>t.id===(store?.type_id||kind));
+     const typeId=type?.id||kind;
+     if(!byType.has(typeId))byType.set(typeId,{title:type?.name||PLACE_KIND_LABELS[kind]||'Другие места',items:[]});
+     byType.get(typeId).items.push(x);
+   }
+   for(const group of byType.values()){
+     body+='<div class="footerhint" style="margin-top:14px;margin-bottom:6px">'+esc(group.title)+'</div>';
+     body+='<div class="surface" style="padding:0 15px">'+group.items.map(x=>
+       '<div class="listitem" onclick="state.placeFocus=\''+esc(x.place_id)+'\';render()">'+
+       '<div class="avatar">'+(kind==='marketplace'?'📦':kind==='grocery_delivery'?'🛵':kind==='offline'?'🏬':kind==='food'?'☕':'📍')+'</div>'+
+       '<div class="grow"><div class="itemname">'+esc(x.place)+'</div><div class="line2">'+x.count+' покупок · подробнее</div></div>'+
+       '<div class="itemprice">'+fmt(x.amount_minor)+'</div></div>'
+     ).join('')+'</div>';
+   }
  }
  const focus=all.find(x=>x.place_id===state.placeFocus&&x.place_id!=='unknown');
  if(focus){
