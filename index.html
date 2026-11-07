@@ -211,6 +211,7 @@ async function cancelTextBatch(id){
 
 
 function openCatalog(){
+ state.catalogContext=null;
  const own=state.categories.filter(x=>x.profile_id!==null).map(x=>'🏷 '+x.name).concat(
    state.places.filter(x=>x.profile_id!==null).map(x=>'📍 '+x.name));
  let v='<div class="between"><div><div class="kicker">Настройки профиля</div><h2>Категории и места</h2></div><button class="iconbtn" onclick="closeModal()">×</button></div>'+
@@ -232,7 +233,8 @@ function openCatalog(){
  '<div class="footerhint">Точное совпадение имеет приоритет перед поиском части слова. Правила применяются к новым покупкам, старые записи не изменяются.</div>';
  sheet(v);
 }
-function newCatalog(kind){
+function newCatalog(kind,context=null){
+ state.catalogContext=context;
  const isCat=kind==='category';
  let v='<div class="between"><h2>'+(isCat?'Новая категория':'Новое место')+'</h2><button class="iconbtn" onclick="openCatalog()">×</button></div>'+
  '<label class="formlabel">Название</label><input class="input" id="ct-name" maxlength="60" placeholder="'+(isCat?'Домашние животные':'Петрович')+'"/>';
@@ -248,21 +250,53 @@ function newCatalog(kind){
  '<option value="item" '+(isCat?'selected':'')+'>Названии товара / описании</option>'+
  '<option value="merchant" '+(!isCat?'selected':'')+'>Названии магазина</option></select>'+
  '<label class="formlabel">Условие</label><select class="input" id="ct-match"><option value="contains">Содержит</option><option value="exact">Совпадает целиком</option></select>'+
- '<button class="button positive full" style="margin-top:17px" data-kind="'+kind+'" onclick="saveCatalog(this.dataset.kind)">Создать</button>'+
+ '<button class="button positive full" style="margin-top:17px" data-kind="'+kind+'" onclick="saveCatalog(this.dataset.kind)">'+(state.catalogContext?'Создать и выбрать':'Создать')+'</button>'+
  '<button class="button full" style="margin-top:8px" onclick="openCatalog()">Назад</button>';
  sheet(v);
+}
+async function reopenPurchaseContext(ctx){
+ if(ctx.source==='batch')return openTextBatch(ctx.id,ctx.index);
+ if(ctx.source==='draft')return openDraft(ctx.id);
+ if(ctx.source==='saved')return tx(ctx.kind==='category'?ctx.parent:ctx.id);
+ return openCatalog();
 }
 async function saveCatalog(kind){
  const name=el('ct-name')?.value.trim(),phrase=el('ct-phrase')?.value.trim();
  if(!name||name.length<2){toast('Укажи название');return}
+ const context=state.catalogContext;
  try{
-  const item=await api('catalog-create',{kind,name,place_kind:el('ct-kind')?.value||'offline'});
-  let issue='';
-  if(phrase)try{await api('rule-create',{target_type:kind,target_id:item.record.id,phrase,
+  const created=await api('catalog-create',{kind,name,place_kind:el('ct-kind')?.value||'offline'});
+  if(created.status!=='ok'||!created.record?.id)throw Error('Создать не удалось');
+  let ruleWarning='';
+  if(phrase){
+   try{await api('rule-create',{target_type:kind,target_id:created.record.id,phrase,
     match_field:el('ct-field')?.value,match_type:el('ct-match')?.value})}
-  catch(e){issue=e.message}
-  await refreshSilent();openCatalog();
-  toast(issue?'Создано, но правило не сохранилось: '+issue:'Добавлено'+(phrase?' с правилом':''));
+   catch(e){ruleWarning=e.message}
+  }
+  let applyWarning='';
+  if(context){
+   try{
+    let applied;
+    if(context.source==='batch'){
+     applied=await api('batch-edit',{id:context.id,index:context.index,
+      field:kind==='category'?'category':'place',value:created.record.id});
+    }else if(kind==='category'){
+     applied=await api('category',{kind:context.source,id:context.id,
+      index:context.index,category:created.record.id});
+    }else{
+     applied=await api('place',{kind:context.source,id:context.id,
+      place:created.record.id});
+    }
+    if(applied.status!=='ok')throw Error('Не удалось присвоить новой записи');
+   }catch(e){applyWarning=e.message}
+  }
+  await refreshSilent();
+  state.catalogContext=null;
+  if(context&&!applyWarning)await reopenPurchaseContext(context);
+  else openCatalog();
+  if(applyWarning)toast('Категория создана, но покупку не удалось изменить: '+applyWarning);
+  else if(ruleWarning)toast('Добавлено; правило не сохранилось: '+ruleWarning);
+  else toast(context?'Создано и выбрано для покупки':'Добавлено'+(phrase?' с правилом':''));
  }catch(e){toast(e.message)}
 }
 function newRule(kind){
@@ -296,12 +330,22 @@ async function deleteCatalogRule(id){
 
 function selectPlace(value,id,kind){
  const options=state.places.length?state.places:Object.entries(PLACE_FALLBACK).map(([id,name])=>({id,name}));
- return '<select class="select" onchange="updatePlace(\''+kind+'\',\''+id+'\',this.value)">'+options.map(p=>
-  '<option value="'+esc(p.id)+'" '+(p.id===value?'selected':'')+'>'+esc(p.name)+'</option>'
- ).join('')+'</select>';
+ const ctx="{source:'"+kind+"',kind:'place',id:'"+id+"'}";
+ return '<div style="display:grid;gap:7px">'+
+  '<select class="select" aria-label="Место покупки" onchange="if(this.value===\'__new__\')newCatalog(\'place\','+ctx+');else updatePlace(\''+kind+'\',\''+id+'\',this.value)">'+
+  options.map(p=>'<option value="'+esc(p.id)+'" '+(p.id===value?'selected':'')+'>'+esc(p.id==='unknown'?'Не указано':p.name)+'</option>').join('')+
+  '<option value="__new__">＋ Создать новое место…</option></select>'+
+  '<button class="txtlink" style="justify-self:start;padding:7px 0" onclick="newCatalog(\'place\','+ctx+')">＋ Добавить своё место покупки</button></div>';
 }
-function selectCategory(value,id,kind,idx){return `<select class="select" onchange="updateCategory('${kind}','${id}',${idx},this.value)">${categoryOptions().map(c=>`<option value="${esc(c.id)}" ${c.id===value?'selected':''}>${esc(c.name)}</option>`).join('')}</select>`}
-async function tx(id){try{const v=await api('transaction?id='+encodeURIComponent(id));let t=v.transaction,items=v.items||[];state.selected={type:'tx',id};sheet(`<div class="between"><div><div class="kicker">${esc(t.occurred_on)}</div><h2 style="margin:5px 0">${esc(t.merchant||'Покупка')}</h2></div><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><h1 style="margin:17px 0 2px">${fmt(t.amount_minor,t.currency)}</h1><div class="sub">${t.gross_amount_minor&&t.gross_amount_minor!==t.amount_minor?'Полный счёт '+fmt(t.gross_amount_minor,t.currency):'Личные расходы'}</div><div class="sectiontitle"><h2>Где куплено</h2></div>${selectPlace(t.place_id||'unknown',id,'saved')}<div class="sectiontitle"><h2>Позиции · ${items.length}</h2></div>${items.map((x,i)=>`<div class="itemedit"><div class="grow"><div class="itemeditname">${esc(x.title)}</div><div class="itemeditsum">${fmt(x.amount_minor,t.currency)}</div></div>${selectCategory(x.category_id,x.id,'saved',i)}</div>`).join('')||'<div class="empty">Нет товарных позиций</div>'}<div class="buttonrow" style="margin-top:24px"><button class="button secondary" onclick="closeModal()">Закрыть</button><button class="button danger" onclick="deleteTx('${id}')">Удалить</button></div>`)}catch(e){toast(e.message)}}
+function selectCategory(value,id,kind,idx,parentId=''){
+ const ctx="{source:'"+kind+"',kind:'category',id:'"+id+"',index:"+idx+",parent:'"+parentId+"'}";
+ return '<div style="display:grid;gap:7px;min-width:150px">'+
+  '<select class="select" aria-label="Категория покупки" onchange="if(this.value===\'__new__\')newCatalog(\'category\','+ctx+');else updateCategory(\''+kind+'\',\''+id+'\','+idx+',this.value)">'+
+  categoryOptions().map(c=>'<option value="'+esc(c.id)+'" '+(c.id===value?'selected':'')+'>'+esc(c.name)+'</option>').join('')+
+  '<option value="__new__">＋ Создать категорию…</option></select>'+
+  '<button class="txtlink" style="justify-self:start;padding:7px 0" onclick="newCatalog(\'category\','+ctx+')">＋ Своя категория</button></div>';
+}
+async function tx(id){try{const v=await api('transaction?id='+encodeURIComponent(id));let t=v.transaction,items=v.items||[];state.selected={type:'tx',id};sheet(`<div class="between"><div><div class="kicker">${esc(t.occurred_on)}</div><h2 style="margin:5px 0">${esc(t.merchant||'Покупка')}</h2></div><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><h1 style="margin:17px 0 2px">${fmt(t.amount_minor,t.currency)}</h1><div class="sub">${t.gross_amount_minor&&t.gross_amount_minor!==t.amount_minor?'Полный счёт '+fmt(t.gross_amount_minor,t.currency):'Личные расходы'}</div><div class="sectiontitle"><h2>Где куплено</h2></div>${selectPlace(t.place_id||'unknown',id,'saved')}<div class="sectiontitle"><h2>Позиции · ${items.length}</h2></div>${items.map((x,i)=>`<div class="itemedit"><div class="grow"><div class="itemeditname">${esc(x.title)}</div><div class="itemeditsum">${fmt(x.amount_minor,t.currency)}</div></div>${selectCategory(x.category_id,x.id,'saved',i,id)}</div>`).join('')||'<div class="empty">Нет товарных позиций</div>'}<div class="buttonrow" style="margin-top:24px"><button class="button secondary" onclick="closeModal()">Закрыть</button><button class="button danger" onclick="deleteTx('${id}')">Удалить</button></div>`)}catch(e){toast(e.message)}}
 async function openDraft(id){try{const v=await api('draft?id='+encodeURIComponent(id));let d=v.draft,p=d.payload||{},items=p.items||[];state.selected={type:'draft',id};const total=items.reduce((s,x)=>s+(Number(x.amount_minor)||0),0),mine=items.reduce((s,x)=>s+(Number(x.my_minor??x.amount_minor)||0),0);const payment=p.source==='marketplace_order'&&p.payment_status!=='paid';sheet(`<div class="between"><div><div class="kicker">Черновик · ${esc(p.date)}</div><h2 style="margin:5px 0">${esc(p.merchant||'Документ')}</h2></div><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><div class="cards2" style="margin:16px 0"><div class="surface smallcard"><div class="kicker">Весь счёт</div><div class="number" style="font-size:21px">${fmt(p.total_minor,p.currency)}</div></div><div class="surface smallcard"><div class="kicker">Моя доля</div><div class="number" style="font-size:21px">${fmt(mine,p.currency)}</div></div></div>${total!==Number(p.total_minor)?'<div class="note warn">Суммы товаров не сходятся с итогом — подтверждение недоступно. Нужно исправить распознавание.</div>':''}${payment?'<div class="note warn" style="margin-bottom:12px">Оплата заказа ещё не подтверждена.</div><button class="button secondary full" onclick="markPaid(\''+id+'\')">Я проверил: заказ оплачен</button>':''}<div class="sectiontitle"><h2>Где куплено</h2></div>${selectPlace(p.place_id||'unknown',id,'draft')}<div class="sectiontitle"><h2>Товарные позиции · ${items.length}</h2></div>${items.map((x,i)=>`<div class="itemedit"><div class="grow"><div class="itemeditname">${esc(x.name)}</div><div class="itemeditsum">${fmt(x.amount_minor,p.currency)} · моё ${fmt(x.my_minor??x.amount_minor,p.currency)}</div><div style="margin-top:7px"><select class="select" onchange="updateShare('${id}',${i},this.value)">${Object.entries(shareNames).map(([k,n])=>`<option value="${k}" ${(x.split_mode||'mine')===k?'selected':''}>${n}</option>`).join('')}</select></div></div>${selectCategory(x.category,id,'draft',i)}</div>`).join('')||'<div class="empty">Нет товаров</div>'}${(p.warnings||[]).length?`<div class="note warn" style="margin:13px 0">${p.warnings.map(esc).join('<br>')}</div>`:''}<div class="buttonrow" style="margin-top:24px"><button class="button secondary" onclick="cancelDraft('${id}')">Отменить</button><button class="button positive" ${total!==Number(p.total_minor)||!mine||payment?'disabled':''} onclick="confirmDraft('${id}')">Подтвердить</button></div><div class="footerhint">Категории и доли сохраняются сразу; окончательно расход учитывается после подтверждения.</div>`)}catch(e){toast(e.message)}}
 async function updatePlace(kind,id,place){
  try{
