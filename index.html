@@ -209,6 +209,91 @@ async function cancelTextBatch(id){
  }catch(e){toast(e.message)}
 }
 
+
+function openCatalog(){
+ const own=state.categories.filter(x=>x.profile_id!==null).map(x=>'🏷 '+x.name).concat(
+   state.places.filter(x=>x.profile_id!==null).map(x=>'📍 '+x.name));
+ let v='<div class="between"><div><div class="kicker">Настройки профиля</div><h2>Категории и места</h2></div><button class="iconbtn" onclick="closeModal()">×</button></div>'+
+ '<div class="note" style="margin:14px 0">Свои категории, магазины и правила. Они не затрагивают другого пользователя.</div>'+
+ '<div class="cards2" style="margin:13px 0">'+
+ '<button class="surface smallcard" onclick="newCatalog(\'category\')">🏷<div class="itemname">+ Категория</div></button>'+
+ '<button class="surface smallcard" onclick="newCatalog(\'place\')">📍<div class="itemname">+ Место</div></button></div>'+
+ '<div class="sectiontitle"><h2>Мои справочники</h2></div><div class="surface" style="padding:10px 14px">'+
+ (own.length?own.map(x=>'<div class="listitem">'+esc(x)+'</div>').join(''):'<div class="sub">Пока только стандартные категории и места</div>')+'</div>'+
+ '<div class="sectiontitle"><h2>Правила классификации</h2><button onclick="newRule(\'category\')">+ Правило</button></div>';
+ v+='<div class="surface" style="padding:0 14px">'+((state.rules||[]).length?state.rules.map(x=>
+ '<div class="listitem"><div class="grow"><div class="itemname">'+(x.target_type==='category'?'🏷 ':'📍 ')+
+  esc(x.target_type==='category'?categoryLabel(x.target_id):placeLabel(x.target_id))+'</div>'+
+  '<div class="line2">'+(x.match_field==='merchant'?'Магазин':'Товар')+
+  (x.match_type==='exact'?' совпадает с «':' содержит «')+esc(x.phrase)+'»</div></div>'+
+  '<button class="iconbtn" data-id="'+esc(x.id)+'" data-enabled="'+(!x.enabled)+'" onclick="toggleCatalogRule(this.dataset.id,this.dataset.enabled===\'true\')">'+(x.enabled?'✓':'–')+'</button>'+
+  '<button class="iconbtn" data-id="'+esc(x.id)+'" onclick="deleteCatalogRule(this.dataset.id)">×</button></div>'
+ ).join(''):'<div class="empty">Правил пока нет</div>')+'</div>'+
+ '<div class="footerhint">Точное совпадение имеет приоритет перед поиском части слова. Правила применяются к новым покупкам, старые записи не изменяются.</div>';
+ sheet(v);
+}
+function newCatalog(kind){
+ const isCat=kind==='category';
+ let v='<div class="between"><h2>'+(isCat?'Новая категория':'Новое место')+'</h2><button class="iconbtn" onclick="openCatalog()">×</button></div>'+
+ '<label class="formlabel">Название</label><input class="input" id="ct-name" maxlength="60" placeholder="'+(isCat?'Домашние животные':'Петрович')+'"/>';
+ if(!isCat){
+  v+='<label class="formlabel">Тип места</label><select class="input" id="ct-kind">'+
+  [['offline','Офлайн-магазин'],['marketplace','Маркетплейс'],['grocery_delivery','Доставка продуктов'],['food','Кафе и рестораны'],['service','Услуги и платежи'],['unknown','Другое']].map(
+   x=>'<option value="'+x[0]+'">'+x[1]+'</option>').join('')+'</select>';
+ }
+ v+='<div class="sectiontitle"><h2>Автоматическое распределение</h2></div>'+
+ '<div class="sub">Фразу можно не задавать, если хочешь выбирать вручную</div>'+
+ '<label class="formlabel">Фраза совпадения</label><input class="input" id="ct-phrase" maxlength="90" placeholder="'+(isCat?'подгузники':'Петрович')+'"/>'+
+ '<label class="formlabel">Искать фразу в</label><select class="input" id="ct-field">'+
+ '<option value="item" '+(isCat?'selected':'')+'>Названии товара / описании</option>'+
+ '<option value="merchant" '+(!isCat?'selected':'')+'>Названии магазина</option></select>'+
+ '<label class="formlabel">Условие</label><select class="input" id="ct-match"><option value="contains">Содержит</option><option value="exact">Совпадает целиком</option></select>'+
+ '<button class="button positive full" style="margin-top:17px" data-kind="'+kind+'" onclick="saveCatalog(this.dataset.kind)">Создать</button>'+
+ '<button class="button full" style="margin-top:8px" onclick="openCatalog()">Назад</button>';
+ sheet(v);
+}
+async function saveCatalog(kind){
+ const name=el('ct-name')?.value.trim(),phrase=el('ct-phrase')?.value.trim();
+ if(!name||name.length<2){toast('Укажи название');return}
+ try{
+  const item=await api('catalog-create',{kind,name,place_kind:el('ct-kind')?.value||'offline'});
+  let issue='';
+  if(phrase)try{await api('rule-create',{target_type:kind,target_id:item.record.id,phrase,
+    match_field:el('ct-field')?.value,match_type:el('ct-match')?.value})}
+  catch(e){issue=e.message}
+  await refreshSilent();openCatalog();
+  toast(issue?'Создано, но правило не сохранилось: '+issue:'Добавлено'+(phrase?' с правилом':''));
+ }catch(e){toast(e.message)}
+}
+function newRule(kind){
+ const cats=kind==='category',items=cats?categoryOptions():state.places;
+ sheet('<div class="between"><h2>Новое правило</h2><button class="iconbtn" onclick="openCatalog()">×</button></div>'+
+ '<label class="formlabel">Что назначить</label><select class="input" onchange="newRule(this.value)">'+
+ '<option value="category" '+(cats?'selected':'')+'>Категорию</option><option value="place" '+(!cats?'selected':'')+'>Место покупки</option></select>'+
+ '<label class="formlabel">Выбор</label><select class="input" id="rl-target">'+items.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('')+'</select>'+
+ '<label class="formlabel">Где искать</label><select class="input" id="rl-field">'+
+ '<option value="item" '+(cats?'selected':'')+'>Название товара / описание</option>'+
+ '<option value="merchant" '+(!cats?'selected':'')+'>Название магазина</option></select>'+
+ '<label class="formlabel">Фраза</label><input class="input" id="rl-phrase" maxlength="90" placeholder="подгузники"/>'+
+ '<label class="formlabel">Совпадение</label><select class="input" id="rl-match"><option value="contains">Содержит</option><option value="exact">Совпадает полностью</option></select>'+
+ '<button class="button positive full" style="margin-top:17px" data-kind="'+kind+'" onclick="saveCatalogRule(this.dataset.kind)">Создать правило</button>'+
+ '<button class="button full" style="margin-top:8px" onclick="openCatalog()">Назад</button>');
+}
+async function saveCatalogRule(type){
+ try{
+  await api('rule-create',{target_type:type,target_id:el('rl-target')?.value,match_field:el('rl-field')?.value,
+  match_type:el('rl-match')?.value,phrase:el('rl-phrase')?.value});
+  await refreshSilent();openCatalog();toast('Правило действует для будущих покупок');
+ }catch(e){toast(e.message)}
+}
+async function toggleCatalogRule(id,enabled){
+ try{await api('rule-toggle',{id,enabled});await refreshSilent();openCatalog();toast('Статус правила обновлён')}catch(e){toast(e.message)}
+}
+async function deleteCatalogRule(id){
+ if(!confirm('Удалить правило?'))return;
+ try{await api('rule-delete',{id});await refreshSilent();openCatalog();toast('Правило удалено')}catch(e){toast(e.message)}
+}
+
 function selectPlace(value,id,kind){
  const options=state.places.length?state.places:Object.entries(PLACE_FALLBACK).map(([id,name])=>({id,name}));
  return '<select class="select" onchange="updatePlace(\''+kind+'\',\''+id+'\',this.value)">'+options.map(p=>
