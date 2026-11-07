@@ -312,7 +312,7 @@ function newCatalog(kind,context=null){
  '<option value="item" '+(isCat?'selected':'')+'>Названии товара / описании</option>'+
  '<option value="merchant" '+(!isCat?'selected':'')+'>Названии магазина</option></select>'+
  '<label class="formlabel">Условие</label><select class="input" id="ct-match"><option value="contains">Содержит</option><option value="exact">Совпадает целиком</option></select>'+
- '<button class="button positive full" style="margin-top:17px" data-kind="'+kind+'" onclick="saveCatalog(this.dataset.kind)">'+(state.catalogContext?'Создать и выбрать':'Создать')+'</button>'+
+ '<button class="button positive full" style="margin-top:17px" data-kind="'+kind+'" id="ct-create" onclick="saveCatalog(this.dataset.kind)">'+(state.catalogContext?'Создать и выбрать':'Создать')+'</button>'+
  '<button class="button full" style="margin-top:8px" onclick="returnFromCatalog()">Назад</button>';
  sheet(v);
 }
@@ -322,11 +322,13 @@ function showInlinePlaceType(){
  if(!box||!select)return;
  if(select.value==='__new__')select.value=state.placeTypePrevious||'unknown';
  box.style.display='block';
+ if(el('ct-create'))el('ct-create').disabled=true;
  el('ct-kind-name')?.focus();
 }
 function hideInlinePlaceType(){
  const box=el('ct-kind-inline');
  if(box)box.style.display='none';
+ if(el('ct-create'))el('ct-create').disabled=false;
  const sel=el('ct-kind');
  if(sel&&sel.value==='__new__')sel.value='unknown';
 }
@@ -360,6 +362,9 @@ async function reopenPurchaseContext(ctx){
  return openCatalog();
 }
 async function saveCatalog(kind){
+ if(kind==='place'&&el('ct-kind-inline')?.style.display==='block'){
+  toast('Сначала сохрани новый тип места или нажми «Отмена»');return;
+ }
  const name=el('ct-name')?.value.trim(),phrase=el('ct-phrase')?.value.trim();
  if(!name||name.length<2){toast('Укажи название');return}
  const context=state.catalogContext;
