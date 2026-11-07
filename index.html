@@ -158,9 +158,13 @@ function batchEditorGroup(id,category,entries,expanded){
     '<label class="formlabel">Тип операции</label><select class="input" onchange="changeBatchField(\''+id+'\','+i+',\'mode\',this.value)">'+
       Object.entries(BATCH_MODES).map(([k,v])=>'<option value="'+k+'" '+(mode===k?'selected':'')+'>'+esc(v)+'</option>').join('')+'</select>'+
     '<label class="formlabel">Категория</label><select class="input" onchange="changeBatchField(\''+id+'\','+i+',\'category\',this.value)">'+
-      categoryOptions().map(c=>'<option value="'+esc(c.id)+'" '+(x.category===c.id?'selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select>'+
+      categoryOptions().map(c=>'<option value="'+esc(c.id)+'" '+(x.category===c.id?'selected':'')+'>'+esc(c.name)+'</option>').join('')+
+      '<option value="__new__">＋ Создать новую категорию…</option></select>'+
+    '<button class="txtlink" style="justify-self:start;padding:6px 0" onclick="newCatalog(\'category\',{source:\'batch\',kind:\'category\',id:\''+id+'\',index:'+i+'})">＋ Добавить свою категорию</button>'+
     '<label class="formlabel">Место покупки</label><select class="input" onchange="changeBatchField(\''+id+'\','+i+',\'place\',this.value)">'+
-      (state.places||[]).map(p=>'<option value="'+esc(p.id)+'" '+(x.place_id===p.id?'selected':'')+'>'+esc(p.name)+'</option>').join('')+'</select>'+
+      (state.places||[]).map(p=>'<option value="'+esc(p.id)+'" '+(x.place_id===p.id?'selected':'')+'>'+esc(p.id==='unknown'?'Место не указано':p.name)+'</option>').join('')+
+      '<option value="__new__">＋ Создать новое место…</option></select>'+
+    '<button class="txtlink" style="justify-self:start;padding:6px 0" onclick="newCatalog(\'place\',{source:\'batch\',kind:\'place\',id:\''+id+'\',index:'+i+'})">＋ Добавить своё место</button>'+
     '</div></details>';
  }
  return result+'</div>';
@@ -195,6 +199,9 @@ async function openTextBatch(id,expanded=-1){
  }catch(e){toast(e.message)}
 }
 async function changeBatchField(id,index,field,value){
+ if(value==='__new__'&&(field==='category'||field==='place')){
+   newCatalog(field,{source:'batch',kind:field,id,index});return;
+ }
  try{
   const v=await api('batch-edit',{id,index,field,value});
   if(v.status!=='ok')throw Error('Не удалось изменить: '+String(v.status));
