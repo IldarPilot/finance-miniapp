@@ -19,7 +19,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const fmt=(minor,c='RUB')=>{const n=(Number(minor)||0)/100;return new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2,style:'currency',currency:c==='RUB'?'RUB':c}).format(n)};
 const shortDate=v=>{try{return new Date(v+'T12:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}catch{return v}};
 const safeMonth=()=>{const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit'}).formatToParts(new Date());return parts.find(p=>p.type==='year').value+'-'+parts.find(p=>p.type==='month').value};
-const state={tab:'home',month:safeMonth(),loading:true,rows:[],drafts:[],places:[],transfers:[],placeFocus:null,report:{currencies:[],categories:[],merchants:[],places:[],place_categories:[],transfers:[]},search:'',filter:'all',selected:null};
+const state={tab:'home',month:safeMonth(),loading:true,rows:[],drafts:[],textBatches:[],places:[],transfers:[],placeFocus:null,report:{currencies:[],categories:[],merchants:[],places:[],place_categories:[],transfers:[]},search:'',filter:'all',selected:null};
 const el=id=>document.getElementById(id);const page=()=>el('app');
 function toast(msg){el('toast').innerHTML=`<div class="toast">${esc(msg)}</div>`;setTimeout(()=>el('toast').innerHTML='',3500)};
 async function api(path,body){if(!AUTH)throw Error('Открой приложение из Telegram');let res=await fetch(new URL('https://lcbazccnalzbvfvcxyoe.supabase.co/functions/v1/finance-app/api/'+path),{method:body?'POST':'GET',headers:{'x-telegram-init-data':AUTH,...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,cache:'no-store'});let v=await res.json().catch(()=>({error:'Некорректный ответ сервера'}));if(!res.ok)throw Error(v.error||'Ошибка соединения');return v}
@@ -29,11 +29,36 @@ function header(){return `<div class="header"><div class="brand"><div class="bra
 function monthpicker(){return `<div class="period"><button class="mutebtn" onclick="changeMonth(-1)">‹</button><span class="label">${new Date(state.month+'-01T12:00:00').toLocaleDateString('ru-RU',{month:'long',year:'numeric'})}</span><button class="mutebtn" onclick="changeMonth(1)">›</button></div>`}
 function catBar(name,amount,max){return `<div class="catrow"><div class="between"><span>${esc(name)}</span><strong>${fmt(amount)}</strong></div><div class="barbg"><div class="barfill" style="width:${Math.min(100,max?Math.round(100*amount/max):0)}%"></div></div></div>`}
 const anyRUB=()=>state.report.currencies.find(c=>c.currency==='RUB');
-function overview(){const total=Number(anyRUB()?.amount_minor||0),r=state.report.categories.filter(c=>c.currency==='RUB'),max=Math.max(...r.map(x=>Number(x.amount_minor)),1),drafts=state.drafts.length;return `<section class="surface hero">${monthpicker()}<div class="kicker">Мои расходы</div><div class="heroamount">${fmt(total)}</div><div class="sub">${anyRUB()?.count||0} покупок за выбранный месяц</div>${state.report.currencies.filter(c=>c.currency!=='RUB').length?`<div class="footerhint">Другие валюты учитываются отдельно: ${state.report.currencies.filter(c=>c.currency!=='RUB').map(c=>fmt(c.amount_minor,c.currency)).join(', ')}</div>`:''}</section><div class="cards2"><div class="surface smallcard" onclick="tab('history')"><div class="kicker">Покупки</div><div class="number">${anyRUB()?.count||0}</div><div class="sub">История →</div></div><div class="surface smallcard" onclick="tab('drafts')"><div class="kicker">На проверке</div><div class="number">${drafts}</div><div class="sub">Разобрать →</div></div></div><div class="sectiontitle"><h2>Куда уходят деньги</h2><button onclick="tab('analytics')">Подробнее →</button></div>${r.length?r.slice(0,6).map(x=>catBar(x.category,Number(x.amount_minor),max)).join(''):'<div class="surface empty">За этот месяц расходов пока нет.<br>Отправь чек боту или добавь расход.</div>'}<div class="sectiontitle"><h2>Последние покупки</h2><button onclick="tab('history')">Вся история →</button></div><div class="surface" style="padding:0 14px">${listTx(state.rows.slice(0,5))}</div>`}
+function overview(){const total=Number(anyRUB()?.amount_minor||0),r=state.report.categories.filter(c=>c.currency==='RUB'),max=Math.max(...r.map(x=>Number(x.amount_minor)),1),drafts=state.drafts.length+state.textBatches.length;return `<section class="surface hero">${monthpicker()}<div class="kicker">Мои расходы</div><div class="heroamount">${fmt(total)}</div><div class="sub">${anyRUB()?.count||0} покупок за выбранный месяц</div>${state.report.currencies.filter(c=>c.currency!=='RUB').length?`<div class="footerhint">Другие валюты учитываются отдельно: ${state.report.currencies.filter(c=>c.currency!=='RUB').map(c=>fmt(c.amount_minor,c.currency)).join(', ')}</div>`:''}</section><div class="cards2"><div class="surface smallcard" onclick="tab('history')"><div class="kicker">Покупки</div><div class="number">${anyRUB()?.count||0}</div><div class="sub">История →</div></div><div class="surface smallcard" onclick="tab('drafts')"><div class="kicker">На проверке</div><div class="number">${drafts}</div><div class="sub">Разобрать →</div></div></div><div class="sectiontitle"><h2>Куда уходят деньги</h2><button onclick="tab('analytics')">Подробнее →</button></div>${r.length?r.slice(0,6).map(x=>catBar(x.category,Number(x.amount_minor),max)).join(''):'<div class="surface empty">За этот месяц расходов пока нет.<br>Отправь чек боту или добавь расход.</div>'}<div class="sectiontitle"><h2>Последние покупки</h2><button onclick="tab('history')">Вся история →</button></div><div class="surface" style="padding:0 14px">${listTx(state.rows.slice(0,5))}</div>`}
 const shopIcon=x=>/ozon|wildberries|вайлдбер|wb|маркет/i.test(x)?'📦':/кафе|кофе|ресторан|бар/i.test(x)?'☕':'🧾';
 function listTx(rows){return rows.length?rows.map(t=>`<div class="listitem" onclick="tx('${t.id}')"><div class="avatar">${shopIcon(t.merchant)}</div><div class="grow"><div class="itemname">${esc(t.merchant||'Покупка')}</div><div class="line2">${esc(shortDate(t.occurred_on))} · ${esc(placeLabel(t.place_id||'unknown'))}</div></div><div class="itemprice">${fmt(t.amount_minor,t.currency)}</div></div>`).join(''):'<div class="empty">Пока нет покупок</div>'}
 function history(){let rows=state.rows.filter(t=>(state.filter==='all'||(state.filter==='manual'?t.source==='manual':t.source==='photo'))&&(!state.search||`${t.merchant} ${t.note}`.toLowerCase().includes(state.search.toLowerCase())));return `<h1>История</h1>${monthpicker()}<input class="search" placeholder="Поиск по покупкам..." value="${esc(state.search)}" oninput="state.search=this.value;el('txlist').innerHTML=listTx(state.rows.filter(t=>(state.filter==='all'||(state.filter==='manual'?t.source==='manual':t.source==='photo'))&&(!state.search||String(t.merchant+' '+t.note).toLowerCase().includes(state.search.toLowerCase()))))"><div class="chiprow"><button class="chip ${state.filter==='all'?'on':''}" onclick="setFilter('all')">Все</button><button class="chip ${state.filter==='photo'?'on':''}" onclick="setFilter('photo')">Чеки и заказы</button><button class="chip ${state.filter==='manual'?'on':''}" onclick="setFilter('manual')">Вручную</button></div><div class="surface" id="txlist" style="padding:0 15px">${listTx(rows)}</div><button class="txtlink" style="display:block;margin:24px auto;color:#bf5b65" onclick="clearHistory()">Очистить историю...</button><div class="footerhint">В истории показаны до 400 последних покупок выбранного месяца. Удалённые операции скрываются, но сохраняются в техническом архиве.</div>`}
-function drafts(){return `<h1>Документы</h1><div class="sub" style="margin:9px 0 22px">Чеки, заказы и банковские операции на проверке</div>${state.drafts.length?'<div class="surface" style="padding:0 15px">'+state.drafts.map(d=>{let p=d.payload||{};return `<div class="listitem" onclick="openDraft('${d.id}')"><div class="avatar">📑</div><div class="grow"><div class="itemname">${esc(p.merchant||'Документ')}</div><div class="line2">${p.items?.length||0} позиций · ${esc(p.date||'Дата не распознана')}</div></div><div class="itemprice">${fmt(p.total_minor,p.currency||'RUB')}</div></div>`}).join('')+'</div>':'<div class="surface empty">Все документы разобраны.<br>Отправь новый чек, заказ или скриншот боту.</div>'}<div class="note" style="margin-top:16px">Фото отправляется сообщением в Telegram. Здесь можно проверить категории, личные доли и подтвердить покупку.</div>`}
+function drafts(){
+ const batches=state.textBatches||[];
+ const photos=state.drafts||[];
+ let view='<h1>Документы</h1><div class="sub" style="margin:9px 0 20px">Бот уже разобрал покупки. Исправлять нужно только при необходимости.</div>';
+ if(batches.length){
+   view+='<div class="sectiontitle"><h2>Списки покупок</h2><span class="sub">'+batches.length+' на проверке</span></div><div class="surface" style="padding:0 15px">'+
+   batches.map(b=>{
+     const items=Array.isArray(b.payload?.items)?b.payload.items:[];
+     const mine=items.filter(x=>(x.save_as??(x.include?'expense':'exclude'))==='expense');
+     const total=mine.reduce((n,x)=>n+Number(x.amount_minor||0),0);
+     const unclear=items.length-mine.length;
+     return '<div class="listitem" onclick="openTextBatch(\''+b.id+'\')"><div class="avatar">🛍</div>'+
+       '<div class="grow"><div class="itemname">'+mine.length+' покупок · '+esc(b.payload?.date||'Дата')+'</div>'+
+       '<div class="line2">'+(unclear?unclear+' вне расходов · ':'')+'Категории и площадки</div></div>'+
+       '<div class="itemprice">'+fmt(total)+'</div></div>';
+   }).join('')+'</div>';
+ }
+ if(photos.length){
+   view+='<div class="sectiontitle"><h2>Чеки и заказы</h2></div><div class="surface" style="padding:0 15px">'+
+   photos.map(d=>{let p=d.payload||{};return '<div class="listitem" onclick="openDraft(\''+d.id+'\')"><div class="avatar">📑</div>'+
+   '<div class="grow"><div class="itemname">'+esc(p.merchant||'Документ')+'</div><div class="line2">'+(p.items?.length||0)+
+   ' позиций · '+esc(p.date||'Дата не распознана')+'</div></div><div class="itemprice">'+fmt(p.total_minor,p.currency||'RUB')+'</div></div>'}).join('')+'</div>';
+ }
+ if(!batches.length&&!photos.length)view+='<div class="surface empty">Нет покупок на проверке. Отправь чек, скриншот или список расходов в Telegram.</div>';
+ return view+'<div class="note" style="margin-top:16px">Категории, площадки и типы операций можно изменить здесь. Сохранение — одним нажатием.</div>';
+}
 function placeAnalytics(){
  const all=(state.report.places||[]).filter(x=>x.currency==='RUB');
  const kinds=['marketplace','grocery_delivery','offline','food','service','unknown'];
@@ -78,10 +103,108 @@ function placeAnalytics(){
 }
 function analytics(){let r=state.report.categories.filter(x=>x.currency==='RUB'),max=Math.max(...r.map(x=>Number(x.amount_minor)),1);return `<h1>Аналитика</h1>${monthpicker()}<section class="surface hero"><div class="kicker">Личные расходы за месяц</div><div class="heroamount">${fmt(anyRUB()?.amount_minor||0)}</div><div class="sub">По категориям, площадкам и переводам</div></section><div class="sectiontitle"><h2>Категории</h2></div>${r.length?r.map(x=>catBar(x.category,Number(x.amount_minor),max)).join(''):'<div class="surface empty">Недостаточно данных</div>'}${placeAnalytics()}<div class="sectiontitle"><h2>Магазины</h2></div><div class="surface" style="padding:0 15px">${state.report.merchants.filter(x=>x.currency==='RUB').slice(0,10).map(x=>`<div class="listitem"><div class="avatar">${shopIcon(x.merchant)}</div><div class="grow itemname">${esc(x.merchant)}</div><div class="itemprice">${fmt(x.amount_minor)}</div></div>`).join('')||'<div class="empty">Нет данных</div>'}</div><div class="footerhint">Валюты не конвертируются автоматически. Доли друзей не включаются в личные расходы.</div>`}
 function render(){if(!AUTH){page().innerHTML=header()+'<div class="surface launchmsg"><h2>Открой внутри Telegram</h2><p class="fade">Для безопасности данные доступны только через меню твоего финансового бота.</p></div>';return;}if(state.loading){page().innerHTML=header()+'<div class="skeleton"></div>';return;}page().innerHTML=header()+({home:overview,history,drafts,analytics}[state.tab]||overview)();nav()}
-async function load(){if(!AUTH){render();return;}state.loading=true;render();try{const data=await api('state?month='+encodeURIComponent(state.month));state.rows=data.transactions||[];state.drafts=data.drafts||[];state.places=data.places||[];state.transfers=data.transfers||[];state.report=data.report||{currencies:[],categories:[],merchants:[]};state.loading=false;render()}catch(e){state.loading=false;page().innerHTML=header()+`<div class="surface empty">${esc(e.message)}<br><button class="button secondary" style="margin:12px" onclick="load()">Повторить</button></div>`}}
+async function load(){if(!AUTH){render();return;}state.loading=true;render();try{const data=await api('state?month='+encodeURIComponent(state.month));state.rows=data.transactions||[];state.drafts=data.drafts||[];state.textBatches=data.batches||[];state.places=data.places||[];state.transfers=data.transfers||[];state.report=data.report||{currencies:[],categories:[],merchants:[]};state.loading=false;render();if(!state.deepLinkOpened){const batch=new URLSearchParams(location.search).get('batch');state.deepLinkOpened=true;if(batch&&/^[0-9a-f-]{36}$/i.test(batch))await openTextBatch(batch)}}catch(e){state.loading=false;page().innerHTML=header()+`<div class="surface empty">${esc(e.message)}<br><button class="button secondary" style="margin:12px" onclick="load()">Повторить</button></div>`}}
 function tab(t){state.tab=t;render()}function setFilter(f){state.filter=f;render()}function changeMonth(offset){let y=+state.month.slice(0,4),m=+state.month.slice(5);let d=new Date(Date.UTC(y,m-1+offset,1));state.month=d.toISOString().slice(0,7);load()}
 function closeModal(){el('modal').innerHTML=''}
 function sheet(contents){el('modal').innerHTML=`<div class="sheetback" onclick="if(event.target===this)closeModal()"><div class="sheet"><div class="handle"></div>${contents}</div></div>`}
+
+const BATCH_MODES={expense:'Покупка',external:'Перевод другому',own:'Между своими счетами',exclude:'Не учитывать'};
+function batchMode(item){return item.save_as??(item.include?'expense':'exclude')}
+function batchEditorGroup(id,category,entries,expanded){
+ const sum=entries.reduce((n,e)=>n+Number(e.item.amount_minor||0),0);
+ const label=category==='__separate__'?'Отдельно от покупок':(CATS[category]||'Прочее');
+ let result='<div style="margin:17px 0 8px" class="between"><strong>'+esc(label)+'</strong><span class="sub">'+
+   (category==='__separate__'?entries.length+' поз.':fmt(sum))+'</span></div>';
+ result+='<div class="surface" style="padding:0 14px">';
+ for(const e of entries){
+  const x=e.item,i=e.index,mode=batchMode(x),open=expanded===i?' open':'';
+  result+='<details'+open+' style="border-bottom:1px solid var(--line, rgba(128,128,128,.14));padding:8px 0" class="batch-detail">'+
+    '<summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:9px;padding:7px 0">'+
+    '<span style="font-size:16px">'+(mode==='expense'?'🛍':mode==='exclude'?'➖':'↔️')+'</span>'+
+    '<span class="grow" style="min-width:0"><span style="display:block;font-size:14px;font-weight:600;overflow-wrap:anywhere">'+esc(x.title)+'</span>'+
+    '<span class="sub" style="font-size:11px">'+esc(mode==='expense'?placeLabel(x.place_id||'unknown'):BATCH_MODES[mode])+'</span></span>'+
+    '<strong style="white-space:nowrap;font-size:14px">'+fmt(x.amount_minor)+'</strong><span style="color:var(--muted, #999)">⌄</span></summary>'+
+    '<div style="padding:10px 1px 15px;display:grid;gap:9px">'+
+    '<label class="formlabel">Название</label><input class="input" id="bt-title-'+i+'" value="'+esc(x.title)+'" maxlength="160"/>'+
+    '<label class="formlabel">Сумма, ₽</label><input class="input" id="bt-amount-'+i+'" inputmode="decimal" value="'+(Number(x.amount_minor||0)/100).toFixed(2).replace('.',',')+'"/>'+
+    '<button class="button full" onclick="saveBatchDetails(\''+id+'\','+i+')">Сохранить название и сумму</button>'+
+    '<label class="formlabel">Тип операции</label><select class="input" onchange="changeBatchField(\''+id+'\','+i+',\'mode\',this.value)">'+
+      Object.entries(BATCH_MODES).map(([k,v])=>'<option value="'+k+'" '+(mode===k?'selected':'')+'>'+esc(v)+'</option>').join('')+'</select>'+
+    '<label class="formlabel">Категория</label><select class="input" onchange="changeBatchField(\''+id+'\','+i+',\'category\',this.value)">'+
+      Object.entries(CATS).map(([k,v])=>'<option value="'+k+'" '+(x.category===k?'selected':'')+'>'+esc(v)+'</option>').join('')+'</select>'+
+    '<label class="formlabel">Место покупки</label><select class="input" onchange="changeBatchField(\''+id+'\','+i+',\'place\',this.value)">'+
+      (state.places||[]).map(p=>'<option value="'+esc(p.id)+'" '+(x.place_id===p.id?'selected':'')+'>'+esc(p.name)+'</option>').join('')+'</select>'+
+    '</div></details>';
+ }
+ return result+'</div>';
+}
+async function openTextBatch(id,expanded=-1){
+ try{
+  const response=await api('text-batch?id='+encodeURIComponent(id));
+  const batch=response.batch,p=batch.payload||{},items=Array.isArray(p.items)?p.items:[];
+  if(batch.status!=='ready'){toast('Список уже обработан');return}
+  state.selected={type:'text-batch',id};
+  const groups=new Map(),separate=[];
+  items.forEach((item,index)=>{
+    if(batchMode(item)!=='expense'){separate.push({item,index});return}
+    const cat=item.category||'other';
+    if(!groups.has(cat))groups.set(cat,[]);
+    groups.get(cat).push({item,index});
+  });
+  const purchases=items.filter(x=>batchMode(x)==='expense'),transfers=items.filter(x=>['external','own'].includes(batchMode(x)));
+  const total=purchases.reduce((n,x)=>n+Number(x.amount_minor||0),0);
+  let html='<div class="between"><div><div class="kicker">Список покупок · '+esc(p.date||'')+'</div>'+
+    '<h2 style="margin:5px 0">Проверка расходов</h2></div><button class="iconbtn" onclick="closeModal()">'+ico('close')+'</button></div>'+
+    '<div class="surface smallcard" style="margin:14px 0"><div class="kicker">К сохранению</div>'+
+    '<div class="number" style="font-size:25px;margin:4px 0">'+fmt(total)+'</div>'+
+    '<div class="sub">'+purchases.length+' покупок · '+transfers.length+' переводов · '+(items.length-purchases.length-transfers.length)+' исключено</div></div>'+
+    '<div class="note">Бот предложил категории автоматически. Нажми на товар, только если хочешь что-то исправить.</div>';
+  for(const [category,entries] of groups)html+=batchEditorGroup(id,category,entries,expanded);
+  if(separate.length)html+=batchEditorGroup(id,'__separate__',separate,expanded);
+  html+='<div style="display:grid;gap:10px;margin-top:20px">'+
+    '<button class="button positive full" onclick="confirmTextBatch(\''+id+'\')" '+(purchases.length+transfers.length?'':'disabled')+'>Подтвердить операции</button>'+
+    '<button class="button full" onclick="cancelTextBatch(\''+id+'\')">Отменить список</button></div>';
+  sheet(html);
+ }catch(e){toast(e.message)}
+}
+async function changeBatchField(id,index,field,value){
+ try{
+  const v=await api('batch-edit',{id,index,field,value});
+  if(v.status!=='ok')throw Error('Не удалось изменить: '+String(v.status));
+  await openTextBatch(id,index);toast('Изменение сохранено');
+ }catch(e){toast(e.message)}
+}
+async function saveBatchDetails(id,index){
+ const title=el('bt-title-'+index)?.value?.trim()||'';
+ const value=el('bt-amount-'+index)?.value?.trim().replace(/\s/g,'').replace(',','.');
+ const amount=Number(value),amount_minor=Math.round(amount*100);
+ if(!title||title.length<2||title.length>160||!Number.isFinite(amount)||amount<=0||
+    !Number.isSafeInteger(amount_minor)||Math.abs(amount_minor/100-amount)>.005){
+  toast('Проверь название и сумму');return;
+ }
+ try{
+  const v=await api('batch-edit',{id,index,field:'details',title,amount_minor});
+  if(v.status!=='ok')throw Error('Не удалось сохранить');
+  await openTextBatch(id,index);toast('Позиция исправлена');
+ }catch(e){toast(e.message)}
+}
+async function confirmTextBatch(id){
+ try{
+  const v=await api('batch-confirm',{id});
+  if(v.status!=='ok')throw Error('Невозможно подтвердить: '+String(v.status));
+  closeModal();state.tab='history';await load();
+  toast('Сохранено покупок: '+v.count+' · переводов: '+v.transfer_count);
+ }catch(e){toast(e.message)}
+}
+async function cancelTextBatch(id){
+ if(!confirm('Отменить этот список? Покупки из него не будут сохранены.'))return;
+ try{
+  const v=await api('batch-cancel',{id});
+  if(v.status!=='ok')throw Error('Не удалось отменить список');
+  closeModal();await load();toast('Список отменён');
+ }catch(e){toast(e.message)}
+}
+
 function selectPlace(value,id,kind){
  const options=state.places.length?state.places:Object.entries(PLACE_FALLBACK).map(([id,name])=>({id,name}));
  return '<select class="select" onchange="updatePlace(\''+kind+'\',\''+id+'\',this.value)">'+options.map(p=>
@@ -117,7 +240,7 @@ async function deleteTx(id){if(!confirm('Удалить эту покупку и
 async function clearHistory(){if(!confirm('Очистить всю историю расходов? Все ранее сохранённые покупки будут скрыты из статистики.'))return;if(prompt('Для подтверждения введи ОЧИСТИТЬ')!=='ОЧИСТИТЬ')return;try{const x=await api('delete-start',{action:'all'}),y=await api('delete-confirm',{intentId:x.id});if(y.status!=='ok')throw Error('Очистка не выполнена');await load();toast('История очищена')}catch(e){toast(e.message)}}
 function openAdd(){sheet(`<div class="between"><h2>Новый расход</h2><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><div style="margin-top:22px"><label class="formlabel">Сумма в рублях</label><input class="input" id="newamount" inputmode="decimal" placeholder="Например, 350,50"/><label class="formlabel">Описание</label><input class="input" id="newdesc" placeholder="Кофе, такси, продукты..."/><label class="formlabel">Категория</label><select class="input" id="newcat">${Object.entries(CATS).map(([k,n])=>`<option value="${k}">${esc(n)}</option>`).join('')}</select><label class="formlabel">Где куплено</label><select class="input" id="newplace"><option value="auto">Определить автоматически</option>${(state.places||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select><button class="button positive full" onclick="saveManual()">Сохранить расход</button><div class="footerhint">Фото чека или скриншот заказа отправляй прямо в чат с ботом.</div></div>`)}
 async function saveManual(){let amount=el('newamount')?.value.replace(',','.'),desc=el('newdesc')?.value.trim(),category=el('newcat')?.value;if(!Number.isFinite(+amount)||+amount<=0||!desc){toast('Укажи корректную сумму и описание');return}try{await api('manual',{amount:+amount,description:desc,category,place:el('newplace')?.value||'auto'});closeModal();state.tab='history';await load();toast('Расход добавлен')}catch(e){toast(e.message)}}
-async function refreshSilent(){let d=await api('state?month='+encodeURIComponent(state.month));state.rows=d.transactions||[];state.drafts=d.drafts||[];state.places=d.places||[];state.transfers=d.transfers||[];state.report=d.report||{currencies:[],categories:[],merchants:[]};render()}
+async function refreshSilent(){let d=await api('state?month='+encodeURIComponent(state.month));state.rows=d.transactions||[];state.drafts=d.drafts||[];state.textBatches=d.batches||[];state.places=d.places||[];state.transfers=d.transfers||[];state.report=d.report||{currencies:[],categories:[],merchants:[]};render()}
 load();
 
 </script></body></html>
