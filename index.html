@@ -164,7 +164,7 @@ function analytics(){let r=state.report.categories.filter(x=>x.currency==='RUB')
 function render(){if(!AUTH){page().innerHTML=header()+'<div class="surface launchmsg"><h2>Открой внутри Telegram</h2><p class="fade">Для безопасности данные доступны только через меню твоего финансового бота.</p></div>';return;}if(state.loading){page().innerHTML=header()+'<div class="skeleton"></div>';return;}page().innerHTML=header()+({home:overview,history,drafts,analytics}[state.tab]||overview)();nav()}
 async function load(){if(!AUTH){render();return;}state.loading=true;render();try{const data=await api('state?month='+encodeURIComponent(state.month));state.rows=data.transactions||[];state.drafts=data.drafts||[];state.textBatches=data.batches||[];state.places=data.places||[];state.placeTypes=data.placeTypes||[];state.categories=data.categories||[];state.rules=data.rules||[];state.transfers=data.transfers||[];state.report=data.report||{currencies:[],categories:[],merchants:[]};state.loading=false;render();if(!state.deepLinkOpened){const batch=new URLSearchParams(location.search).get('batch');state.deepLinkOpened=true;if(batch&&/^[0-9a-f-]{36}$/i.test(batch))await openTextBatch(batch)}}catch(e){state.loading=false;page().innerHTML=header()+`<div class="surface empty">${esc(e.message)}<br><button class="button secondary" style="margin:12px" onclick="load()">Повторить</button></div>`}}
 function tab(t){state.tab=t;render()}function setFilter(f){state.filter=f;render()}function changeMonth(offset){let y=+state.month.slice(0,4),m=+state.month.slice(5);let d=new Date(Date.UTC(y,m-1+offset,1));state.month=d.toISOString().slice(0,7);load()}
-function closeModal(){el('modal').innerHTML=''}
+function closeModal(){state.categoryLedgerContext=null;el('modal').innerHTML=''}
 function sheet(contents){el('modal').innerHTML=`<div class="sheetback" onclick="if(event.target===this)closeModal()"><div class="sheet"><div class="handle"></div>${contents}</div></div>`}
 
 const BATCH_MODES={expense:'Покупка',external:'Перевод другому',own:'Между своими счетами',exclude:'Не учитывать'};
@@ -519,11 +519,12 @@ async function openCategoryLedger(categoryId,placeId=null){
          const merchant=item.merchant||'Без магазина';
          const label=item.item_title||merchant||'Покупка';
          const location=placeLabel(item.place_id||'unknown');
+         const detail=merchant.toLocaleLowerCase('ru-RU')===label.toLocaleLowerCase('ru-RU')?location:merchant+' · '+location;
          return '<button type="button" class="ledger-item" data-tx="'+esc(txId)+
            '" onclick="openCategoryTransaction(this.dataset.tx)">'+
            '<div class="avatar">'+shopIcon(merchant)+'</div>'+
            '<div class="grow"><div class="itemname">'+esc(label)+'</div>'+
-           '<div class="line2">'+esc(merchant)+' · '+esc(location)+'</div></div>'+
+           '<div class="line2">'+esc(detail)+'</div></div>'+
            '<div class="itemprice">'+fmt(item.item_amount_minor,item.currency||'RUB')+'</div>'+
            '<span class="cat-chevron" aria-hidden="true">›</span></button>';
          }).join('')+'</div>';
