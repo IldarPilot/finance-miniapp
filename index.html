@@ -234,44 +234,58 @@ function overview(){
 }
 const shopIcon=x=>/ozon|wildberries|вайлдбер|wb|маркет/i.test(x)?'📦':/кафе|кофе|ресторан|бар/i.test(x)?'☕':'🧾';
 function listTx(rows){return rows.length?rows.map(t=>`<div class="listitem" onclick="tx('${t.id}')"><div class="avatar">${shopIcon(t.merchant)}</div><div class="grow"><div class="itemname">${esc(t.merchant||'Покупка')}</div><div class="line2">${esc(shortDate(t.occurred_on))} · ${esc(placeLabel(t.place_id||'unknown'))}</div></div><div class="itemprice">${fmt(t.amount_minor,t.currency)}</div></div>`).join(''):'<div class="empty">Пока нет покупок</div>'}
-function history(){let rows=state.rows.filter(t=>(state.filter==='all'||(state.filter==='manual'?t.source==='manual':t.source==='photo'))&&(!state.search||`${t.merchant} ${t.note}`.toLowerCase().includes(state.search.toLowerCase())));return `<h1>История</h1>${monthpicker()}<input class="search" placeholder="Поиск по покупкам..." value="${esc(state.search)}" oninput="state.search=this.value;el('txlist').innerHTML=listTx(state.rows.filter(t=>(state.filter==='all'||(state.filter==='manual'?t.source==='manual':t.source==='photo'))&&(!state.search||String(t.merchant+' '+t.note).toLowerCase().includes(state.search.toLowerCase()))))"><div class="chiprow"><button class="chip ${state.filter==='all'?'on':''}" onclick="setFilter('all')">Все</button><button class="chip ${state.filter==='photo'?'on':''}" onclick="setFilter('photo')">Чеки и заказы</button><button class="chip ${state.filter==='manual'?'on':''}" onclick="setFilter('manual')">Вручную</button></div><div class="surface" id="txlist" style="padding:0 15px">${listTx(rows)}</div><button class="txtlink" style="display:block;margin:24px auto;color:#bf5b65" onclick="clearHistory()">Очистить историю...</button><div class="footerhint">В истории показаны до 400 последних покупок выбранного месяца. Удалённые операции скрываются, но сохраняются в техническом архиве.</div>`}
+function history(){
+ const match=t=>(state.filter==='all'||(state.filter==='manual'?t.source==='manual':t.source==='photo'))&&
+   (!state.search||String(t.merchant+' '+t.note).toLowerCase().includes(state.search.toLowerCase()));
+ const rows=state.rows.filter(match);
+ return '<div class="page-intro"><div><h1>История</h1>'+
+   '<div class="sub">Все сохранённые операции в одном месте</div></div></div>'+
+   monthpicker()+
+   '<input class="search" aria-label="Поиск по покупкам" placeholder="Поиск по покупкам…" value="'+esc(state.search)+
+    '" oninput="state.search=this.value;el(\'txlist\').innerHTML=listTx(state.rows.filter(t=>(state.filter===\'all\'||(state.filter===\'manual\'?t.source===\'manual\':t.source===\'photo\'))&&(!state.search||String(t.merchant+\' \'+t.note).toLowerCase().includes(state.search.toLowerCase()))))">'+
+   '<div class="chiprow" aria-label="Фильтры истории">'+
+     '<button class="chip '+(state.filter==='all'?'on':'')+'" onclick="setFilter(\'all\')">Все</button>'+
+     '<button class="chip '+(state.filter==='photo'?'on':'')+'" onclick="setFilter(\'photo\')">Чеки и заказы</button>'+
+     '<button class="chip '+(state.filter==='manual'?'on':'')+'" onclick="setFilter(\'manual\')">Вручную</button></div>'+
+   '<div class="surface compact-list" id="txlist">'+listTx(rows)+'</div>'+
+   '<button class="txtlink" style="display:block;margin:20px auto 4px;color:#b9757e" onclick="clearHistory()">Очистить историю</button>'+
+   '<div class="footerhint">Показаны до 400 последних покупок за выбранный месяц. Удаление требует подтверждения.</div>';
+}
 function drafts(){
- const batches=state.textBatches||[];
- const photos=state.drafts||[];
- let view='<div class="between"><h1>Документы</h1><button class="txtlink" onclick="openCatalog()">⚙ Категории и места</button></div><div class="sub" style="margin:9px 0 20px">Бот уже разобрал покупки. Исправлять нужно только при необходимости.</div>';
+ const batches=state.textBatches||[],photos=state.drafts||[];
+ const total=batches.length+photos.length;
+ let view='<div class="page-intro"><div><h1>Документы</h1>'+
+  '<div class="sub">Проверь распознавание только при необходимости</div></div>'+
+  '<span class="status-chip">'+total+' на проверке</span></div>';
  if(batches.length){
-   view+='<div class="sectiontitle"><h2>Списки покупок</h2><span class="sub">'+batches.length+' на проверке</span></div><div class="surface" style="padding:0 15px">'+
-   batches.map(b=>{
-     const items=Array.isArray(b.payload?.items)?b.payload.items:[];
-     const mine=items.filter(x=>(x.save_as??(x.include?'expense':'exclude'))==='expense');
-     const total=mine.reduce((n,x)=>n+Number(x.amount_minor||0),0);
-     const unclear=items.length-mine.length;
-     return '<div class="listitem" onclick="openTextBatch(\''+b.id+'\')"><div class="avatar">🛍</div>'+
-       '<div class="grow"><div class="itemname">'+mine.length+' покупок · '+esc(b.payload?.date||'Дата')+'</div>'+
-       '<div class="line2">'+(unclear?unclear+' вне расходов · ':'')+'Категории и площадки</div></div>'+
-       '<div class="itemprice">'+fmt(total)+'</div></div>';
+  view+='<div class="sectiontitle"><h2>Списки покупок</h2><span class="sub">'+batches.length+'</span></div>'+
+   '<div class="surface compact-list">'+batches.map(b=>{
+    const items=Array.isArray(b.payload?.items)?b.payload.items:[];
+    const mine=items.filter(x=>(x.save_as??(x.include?'expense':'exclude'))==='expense');
+    const amount=mine.reduce((n,x)=>n+Number(x.amount_minor||0),0);
+    const excluded=items.length-mine.length;
+    return '<div class="listitem" onclick="openTextBatch(\''+b.id+'\')">'+
+      '<div class="avatar">≡</div>'+
+      '<div class="grow"><div class="itemname">Список · '+esc(b.payload?.date||'Без даты')+'</div>'+
+      '<div class="line2">'+mine.length+' покупок'+(excluded?' · '+excluded+' отдельно':'')+'</div></div>'+
+      '<div class="itemprice">'+fmt(amount)+'</div><span class="cat-chevron">›</span></div>';
    }).join('')+'</div>';
  }
  if(photos.length){
-   view+='<div class="sectiontitle"><h2>Чеки и заказы</h2></div><div class="surface" style="padding:0 15px">'+
-   photos.map(d=>{let p=d.payload||{};return '<div class="listitem" onclick="openDraft(\''+d.id+'\')"><div class="avatar">📑</div>'+
-   '<div class="grow"><div class="itemname">'+esc(p.merchant||'Документ')+'</div><div class="line2">'+(p.items?.length||0)+
-   ' позиций · '+esc(p.date||'Дата не распознана')+'</div></div><div class="itemprice">'+fmt(p.total_minor,p.currency||'RUB')+'</div></div>'}).join('')+'</div>';
+  view+='<div class="sectiontitle"><h2>Чеки и заказы</h2><span class="sub">'+photos.length+'</span></div>'+
+   '<div class="surface compact-list">'+photos.map(d=>{
+    const p=d.payload||{};
+    return '<div class="listitem" onclick="openDraft(\''+d.id+'\')">'+
+      '<div class="avatar">▤</div>'+
+      '<div class="grow"><div class="itemname">'+esc(p.merchant||'Чек без магазина')+'</div>'+
+      '<div class="line2">'+(p.items?.length||0)+' позиций · '+esc(p.date||'Дата не определена')+'</div></div>'+
+      '<div class="itemprice">'+fmt(p.total_minor,p.currency||'RUB')+'</div><span class="cat-chevron">›</span></div>';
+   }).join('')+'</div>';
  }
- if(!batches.length&&!photos.length)view+='<div class="surface empty">Нет покупок на проверке. Отправь чек, скриншот или список расходов в Telegram.</div>';
- return view+'<div class="note" style="margin-top:16px">Категории, площадки и типы операций можно изменить здесь. Сохранение — одним нажатием.</div>';
-}
-function openMissingPlaces(){
- const missing=(state.rows||[]).filter(t=>t.currency==='RUB'&&(!t.place_id||t.place_id==='unknown'));
- let out='<div class="between"><div><div class="kicker">Аналитика</div><h2>Место покупки</h2></div><button class="iconbtn" onclick="closeModal()">×</button></div>'+
- '<div class="note" style="margin:14px 0">Категории уже учтены. Если помнишь магазин или сервис, открой покупку и выбери его. Если нет — можно оставить как есть.</div>';
- out+=missing.length?'<div class="surface" style="padding:0 14px">'+missing.map(t=>
-  '<div class="listitem"><div class="avatar">📍</div><div class="grow" style="min-width:0"><div class="itemname">'+esc(t.note||t.merchant||'Покупка')+'</div>'+
-  '<div class="line2">'+esc(shortDate(t.occurred_on))+' · '+fmt(t.amount_minor,t.currency)+'</div></div>'+
-  '<button class="txtlink" data-id="'+esc(t.id)+'" onclick="tx(this.dataset.id)">Изменить</button></div>'
- ).join('')+'</div>':'<div class="surface empty">За этот месяц таких покупок нет.</div>';
- out+='<div class="footerhint">В карточке покупки можно также создать новое место.</div>';
- sheet(out);
+ if(!total)view+='<div class="surface empty" style="margin-top:18px"><div style="font-size:29px;margin-bottom:8px">✓</div>'+
+    '<strong style="display:block;font-size:16px;color:var(--ink);margin-bottom:6px">Всё разобрано</strong>'+
+    'Новых чеков и списков на проверке нет. Отправь покупку боту — она появится здесь.</div>';
+ return view+'<div class="footerhint" style="margin:20px 2px">Изменения категорий, площадок и долей сохраняются в черновике. В расходы покупка попадёт только после подтверждения.</div>';
 }
 function placeAnalytics(){
  const all=(state.report.places||[]).filter(x=>x.currency==='RUB');
@@ -336,7 +350,30 @@ function placeAnalytics(){
  body+='<div class="footerhint">Переводы показаны отдельно и не прибавляются к сумме покупок. Если место покупки не указано, можно уточнить его, не меняя категорию расхода.</div>';
  return body;
 }
-function analytics(){let r=state.report.categories.filter(x=>x.currency==='RUB'),max=Math.max(...r.map(x=>Number(x.amount_minor)),1);return `<h1>Аналитика</h1>${monthpicker()}<section class="surface hero"><div class="kicker">Личные расходы за месяц</div><div class="heroamount">${fmt(anyRUB()?.amount_minor||0)}</div><div class="sub">По категориям, площадкам и переводам</div></section><div class="sectiontitle"><h2>На что потрачено · категории</h2></div><div class="sub" style="margin-bottom:6px">Нажми категорию для подробной выписки</div>${r.length?r.map(x=>catBar(x.category,Number(x.amount_minor),max,x.category_id)).join(''):'<div class="surface empty">Недостаточно данных</div>'}${placeAnalytics()}<div class="sectiontitle"><h2>Описания покупок</h2></div><div class="surface" style="padding:0 15px">${state.report.merchants.filter(x=>x.currency==='RUB').slice(0,10).map(x=>`<div class="listitem"><div class="avatar">${shopIcon(x.merchant)}</div><div class="grow itemname">${esc(x.merchant)}</div><div class="itemprice">${fmt(x.amount_minor)}</div></div>`).join('')||'<div class="empty">Нет данных</div>'}</div><div class="footerhint">Валюты не конвертируются автоматически. Доли друзей не включаются в личные расходы.</div>`}
+function analytics(){
+ const rows=(state.report.categories||[]).filter(x=>x.currency==='RUB').sort((a,b)=>Number(b.amount_minor)-Number(a.amount_minor));
+ const max=Math.max(1,...rows.map(x=>Number(x.amount_minor)));
+ const descriptions=(state.report.merchants||[]).filter(x=>x.currency==='RUB').slice(0,10);
+ return '<div class="page-intro"><div><h1>Аналитика</h1>'+
+    '<div class="sub">На что и где уходят деньги</div></div></div>'+
+   monthpicker()+
+   '<section class="surface insight-total">'+
+     '<div><div class="kicker">Всего расходов</div>'+
+       '<div class="sub" style="margin-top:7px">'+rows.length+' категорий за месяц</div></div>'+
+     '<strong>'+fmt(anyRUB()?.amount_minor||0)+'</strong></section>'+
+   '<div class="sectiontitle"><h2>По категориям</h2><span class="sub">Нажми для детализации</span></div>'+
+   '<div class="surface category-panel">'+(rows.length?
+      rows.map(x=>catBar(x.category,Number(x.amount_minor),max,x.category_id)).join(''):
+      '<div class="empty">Пока нет расходов для аналитики.</div>')+'</div>'+
+   placeAnalytics()+
+   (descriptions.length?
+     '<details class="surface disclosure"><summary>По описанию покупки <span class="sub" style="margin-left:auto;margin-right:8px">'+descriptions.length+' позиций</span></summary>'+
+       '<div class="dash" style="margin:0">'+descriptions.map(x=>
+        '<div class="listitem"><div class="avatar">'+shopIcon(x.merchant)+'</div>'+
+         '<div class="grow"><div class="itemname">'+esc(x.merchant)+'</div></div>'+
+         '<div class="itemprice">'+fmt(x.amount_minor)+'</div></div>').join('')+'</div></details>':'')+
+   '<div class="footerhint" style="margin:18px 2px">Переводы учитываются отдельно от покупок. Суммы в разных валютах не конвертируются автоматически.</div>';
+}
 function render(){if(!AUTH){page().innerHTML=header()+'<div class="surface launchmsg"><h2>Открой внутри Telegram</h2><p class="fade">Для безопасности данные доступны только через меню твоего финансового бота.</p></div>';return;}if(state.loading){page().innerHTML=header()+'<div class="skeleton"></div>';return;}page().innerHTML=header()+({home:overview,history,drafts,analytics}[state.tab]||overview)();nav()}
 async function load(){if(!AUTH){render();return;}state.loading=true;render();try{const data=await api('state?month='+encodeURIComponent(state.month));state.rows=data.transactions||[];state.drafts=data.drafts||[];state.textBatches=data.batches||[];state.places=data.places||[];state.placeTypes=data.placeTypes||[];state.categories=data.categories||[];state.rules=data.rules||[];state.transfers=data.transfers||[];state.report=data.report||{currencies:[],categories:[],merchants:[]};state.loading=false;render();if(!state.deepLinkOpened){const batch=new URLSearchParams(location.search).get('batch');state.deepLinkOpened=true;if(batch&&/^[0-9a-f-]{36}$/i.test(batch))await openTextBatch(batch)}}catch(e){state.loading=false;page().innerHTML=header()+`<div class="surface empty">${esc(e.message)}<br><button class="button secondary" style="margin:12px" onclick="load()">Повторить</button></div>`}}
 function tab(t){state.tab=t;render()}function setFilter(f){state.filter=f;render()}function changeMonth(offset){let y=+state.month.slice(0,4),m=+state.month.slice(5);let d=new Date(Date.UTC(y,m-1+offset,1));state.month=d.toISOString().slice(0,7);load()}
