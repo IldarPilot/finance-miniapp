@@ -182,7 +182,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const fmt=(minor,c='RUB')=>{const n=(Number(minor)||0)/100;return new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2,style:'currency',currency:c==='RUB'?'RUB':c}).format(n)};
 const shortDate=v=>{try{return new Date(v+'T12:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}catch{return v}};
 const safeMonth=()=>{const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit'}).formatToParts(new Date());return parts.find(p=>p.type==='year').value+'-'+parts.find(p=>p.type==='month').value};
-const state={tab:'home',month:safeMonth(),loading:true,rows:[],drafts:[],textBatches:[],places:[],placeTypes:[],categories:[],rules:[],transfers:[],placeFocus:null,report:{currencies:[],categories:[],merchants:[],places:[],place_categories:[],transfers:[]},search:'',filter:'all',selected:null};
+const state={tab:'home',month:safeMonth(),loading:true,rows:[],drafts:[],textBatches:[],places:[],placeTypes:[],categories:[],rules:[],transfers:[],placeFocus:null,report:{currencies:[],categories:[],merchants:[],places:[],place_categories:[],transfers:[]},search:'',filter:'all',selected:null,insights:null,insightsMonth:null,insightsLoading:false,insightsLoadingMonth:null,insightsError:null,analyticsPeriodContext:null};
 const el=id=>document.getElementById(id);const page=()=>el('app');
 function toast(msg){el('toast').innerHTML=`<div class="toast">${esc(msg)}</div>`;setTimeout(()=>el('toast').innerHTML='',3500)};
 async function api(path,body){if(!AUTH)throw Error('Открой приложение из Telegram');let res=await fetch(new URL('https://lcbazccnalzbvfvcxyoe.supabase.co/functions/v1/finance-app/api/'+path),{method:body?'POST':'GET',headers:{'x-telegram-init-data':AUTH,...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,cache:'no-store'});let v=await res.json().catch(()=>({error:'Некорректный ответ сервера'}));if(!res.ok)throw Error(v.error||'Ошибка соединения');return v}
@@ -399,8 +399,27 @@ function analytics(){
    '<div class="footerhint" style="margin:18px 2px">Переводы учитываются отдельно от покупок. Суммы в разных валютах не конвертируются автоматически.</div>';
 }
 function render(){if(!AUTH){page().innerHTML=header()+'<div class="surface launchmsg"><h2>Открой внутри Telegram</h2><p class="fade">Для безопасности данные доступны только через меню твоего финансового бота.</p></div>';return;}if(state.loading){page().innerHTML=header()+'<div class="skeleton"></div>';return;}page().innerHTML=header()+({home:overview,history,drafts,analytics}[state.tab]||overview)();nav()}
-async function load(){if(!AUTH){render();return;}state.loading=true;render();try{const data=await api('state?month='+encodeURIComponent(state.month));state.rows=data.transactions||[];state.drafts=data.drafts||[];state.textBatches=data.batches||[];state.places=data.places||[];state.placeTypes=data.placeTypes||[];state.categories=data.categories||[];state.rules=data.rules||[];state.transfers=data.transfers||[];state.report=data.report||{currencies:[],categories:[],merchants:[]};state.loading=false;render();if(!state.deepLinkOpened){const batch=new URLSearchParams(location.search).get('batch');state.deepLinkOpened=true;if(batch&&/^[0-9a-f-]{36}$/i.test(batch))await openTextBatch(batch)}}catch(e){state.loading=false;page().innerHTML=header()+`<div class="surface empty">${esc(e.message)}<br><button class="button secondary" style="margin:12px" onclick="load()">Повторить</button></div>`}}
-function tab(t){state.tab=t;render()}function setFilter(f){state.filter=f;render()}function changeMonth(offset){let y=+state.month.slice(0,4),m=+state.month.slice(5);let d=new Date(Date.UTC(y,m-1+offset,1));state.month=d.toISOString().slice(0,7);load()}
+async function load(){if(!AUTH){render();return;}state.loading=true;render();try{const data=await api('state?month='+encodeURIComponent(state.month));state.rows=data.transactions||[];state.drafts=data.drafts||[];state.textBatches=data.batches||[];state.places=data.places||[];state.placeTypes=data.placeTypes||[];state.categories=data.categories||[];state.rules=data.rules||[];state.transfers=data.transfers||[];state.report=data.report||{currencies:[],categories:[],merchants:[]};state.loading=false;render();if(state.tab==='analytics')loadInsights();if(!state.deepLinkOpened){const batch=new URLSearchParams(location.search).get('batch');state.deepLinkOpened=true;if(batch&&/^[0-9a-f-]{36}$/i.test(batch))await openTextBatch(batch)}}catch(e){state.loading=false;page().innerHTML=header()+`<div class="surface empty">${esc(e.message)}<br><button class="button secondary" style="margin:12px" onclick="load()">Повторить</button></div>`}}
+async function loadInsights(){
+ const month=state.month;
+ if(state.insightsLoading&&state.insightsLoadingMonth===month)return;
+ state.insightsLoading=true;state.insightsLoadingMonth=month;state.insightsError=null;
+ if(state.tab==='analytics'&&!state.loading)render();
+ try{
+   const data=await api('analytics-insights?month='+encodeURIComponent(month));
+   if(state.month!==month)return;
+   state.insights=data;state.insightsMonth=month;
+ }catch(e){
+   if(state.month!==month)return;
+   state.insightsError=e.message||'Не удалось загрузить статистику';
+ }finally{
+   if(state.insightsLoadingMonth===month){
+     state.insightsLoading=false;state.insightsLoadingMonth=null;
+     if(state.tab==='analytics'&&!state.loading)render();
+   }
+ }
+}
+function tab(t){state.tab=t;render();if(t==='analytics'&&state.insightsMonth!==state.month)loadInsights()}function setFilter(f){state.filter=f;render()}function changeMonth(offset){let y=+state.month.slice(0,4),m=+state.month.slice(5);let d=new Date(Date.UTC(y,m-1+offset,1));state.month=d.toISOString().slice(0,7);load()}
 function closeModal(){state.categoryLedgerContext=null;el('modal').innerHTML=''}
 function sheet(contents){el('modal').innerHTML=`<div class="sheetback" onclick="if(event.target===this)closeModal()"><div class="sheet"><div class="handle"></div>${contents}</div></div>`}
 
@@ -839,7 +858,7 @@ function manualCreate(kind){
 }
 function openAdd(values={}){sheet(`<div class="between"><h2>Новый расход</h2><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><div style="margin-top:22px"><label class="formlabel">Сумма в рублях</label><input class="input" id="newamount" inputmode="decimal" placeholder="Например, 350,50" value="${esc(values.amount||'')}"/><label class="formlabel">Описание</label><input class="input" id="newdesc" oninput="suggestManual()" placeholder="Кофе, такси, продукты..." value="${esc(values.desc||'')}"/><label class="formlabel">Категория</label><div class="select-with-add"><select class="input" id="newcat" onchange="if(this.value==='__new__')manualCreate('category');else this.dataset.touched='1'">${categoryOptions().map(c=>`<option value="${esc(c.id)}" ${c.id===values.category?'selected':''}>${esc(c.name)}</option>`).join('')}<option value="__new__">＋ Создать категорию…</option></select><button class="inline-add" type="button" aria-label="Создать категорию" onclick="manualCreate('category')">＋</button></div><label class="formlabel">Где куплено</label><div class="select-with-add"><select class="input" id="newplace" onchange="if(this.value==='__new__')manualCreate('place');else this.dataset.touched='1'"><option value="auto" ${!values.place||values.place==='auto'?'selected':''}>Определить автоматически</option>${(state.places||[]).map(p=>`<option value="${esc(p.id)}" ${p.id===values.place?'selected':''}>${esc(p.name)}</option>`).join('')}<option value="__new__">＋ Создать место…</option></select><button class="inline-add" type="button" aria-label="Создать место покупки" onclick="manualCreate('place')">＋</button></div><button class="button positive full" onclick="saveManual()">Сохранить расход</button><div class="footerhint">Если задано правило для описания, категория и магазин подставятся автоматически. Фото чека отправляй в чат с ботом.</div></div>`)}
 async function saveManual(){let amount=el('newamount')?.value.replace(',','.'),desc=el('newdesc')?.value.trim(),category=el('newcat')?.value;if(!Number.isFinite(+amount)||+amount<=0||!desc){toast('Укажи корректную сумму и описание');return}try{await api('manual',{amount:+amount,description:desc,category,place:el('newplace')?.value||'auto'});closeModal();state.tab='history';await load();toast('Расход добавлен')}catch(e){toast(e.message)}}
-async function refreshSilent(){let d=await api('state?month='+encodeURIComponent(state.month));state.rows=d.transactions||[];state.drafts=d.drafts||[];state.textBatches=d.batches||[];state.places=d.places||[];state.placeTypes=d.placeTypes||[];state.categories=d.categories||[];state.rules=d.rules||[];state.transfers=d.transfers||[];state.report=d.report||{currencies:[],categories:[],merchants:[]};render()}
+async function refreshSilent(){let d=await api('state?month='+encodeURIComponent(state.month));state.rows=d.transactions||[];state.drafts=d.drafts||[];state.textBatches=d.batches||[];state.places=d.places||[];state.placeTypes=d.placeTypes||[];state.categories=d.categories||[];state.rules=d.rules||[];state.transfers=d.transfers||[];state.report=d.report||{currencies:[],categories:[],merchants:[]};render();if(state.tab==='analytics')loadInsights()}
 load();
 
 </script></body></html>
