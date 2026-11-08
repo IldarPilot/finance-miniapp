@@ -332,22 +332,32 @@ function placeAnalytics(){
      '</div>';
  }
  const transfers=(state.report.transfers||[]).filter(x=>x.currency==='RUB');
- body+='<div class="sectiontitle"><h2>Денежные переводы</h2></div>';
- body+='<div class="surface" style="padding:0 15px">'+(transfers.map(x=>
-   '<div class="listitem"><div class="avatar">'+(x.transfer_kind==='external'?'💸':'🔄')+'</div>'+
-   '<div class="grow itemname">'+(x.transfer_kind==='external'?'Другим людям':'Между своими счетами')+'</div>'+
-   '<div class="itemprice">'+fmt(x.amount_minor)+'</div></div>'
- ).join('')||'<div class="empty">Подтверждённых переводов пока нет</div>')+'</div>';
  const details=state.transfers||[];
- if(details.length){
-   body+='<details class="surface" style="padding:14px;margin-top:10px"><summary style="cursor:pointer;font-weight:600">История переводов · '+details.length+'</summary>'+
-    details.map(t=>'<div class="listitem">'+
-      '<div class="grow"><div class="itemname">'+esc(t.title)+'</div>'+
-      '<div class="line2">'+esc(shortDate(t.occurred_on))+' · '+(t.transfer_kind==='external'?'Другому человеку':'Между своими счетами')+'</div></div>'+
-      '<div class="itemprice">'+fmt(t.amount_minor,t.currency)+'</div>'+
-      '<button class="iconbtn" aria-label="Удалить перевод" data-id="'+esc(t.id)+'" onclick="deleteTransfer(this.dataset.id)">✕</button></div>').join('')+'</details>';
+ const transferSum=transfers.reduce((acc,x)=>acc+Number(x.amount_minor||0),0);
+ body+='<div class="sectiontitle"><h2>Денежные переводы</h2></div>';
+ if(!transfers.length&&!details.length){
+   body+='<div class="surface" style="padding:17px 18px"><div class="between">'+
+     '<span class="sub">Переводов в выбранном месяце нет</span>'+
+     '<span class="status-chip">Не расходы</span></div></div>';
+ }else{
+   body+='<details class="surface disclosure">'+
+    '<summary><span>Переводы за месяц</span>'+
+     '<span class="itemprice" style="margin-left:auto;margin-right:8px">'+fmt(transferSum)+'</span></summary>'+
+    '<div class="dash" style="margin:0">'+transfers.map(x=>
+      '<div class="listitem"><div class="avatar">'+(x.transfer_kind==='external'?'↗':'↔')+'</div>'+
+       '<div class="grow itemname">'+(x.transfer_kind==='external'?'Другим людям':'Между своими счетами')+'</div>'+
+       '<div class="itemprice">'+fmt(x.amount_minor)+'</div></div>'
+    ).join('')+'</div>'+
+    (details.length?
+      '<div class="footerhint" style="margin:12px 0 5px">История переводов</div>'+
+      details.map(t=>
+        '<div class="listitem"><div class="grow"><div class="itemname">'+esc(t.title)+'</div>'+
+        '<div class="line2">'+esc(shortDate(t.occurred_on))+' · '+(t.transfer_kind==='external'?'Другому человеку':'Между своими счетами')+'</div></div>'+
+        '<div class="itemprice">'+fmt(t.amount_minor,t.currency)+'</div>'+
+        '<button class="iconbtn" aria-label="Удалить перевод" data-id="'+esc(t.id)+'" onclick="deleteTransfer(this.dataset.id)">✕</button></div>'
+      ).join(''):'')+'</details>';
  }
- body+='<div class="footerhint">Переводы показаны отдельно и не прибавляются к сумме покупок. Если место покупки не указано, можно уточнить его, не меняя категорию расхода.</div>';
+
  return body;
 }
 function analytics(){
