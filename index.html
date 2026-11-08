@@ -379,29 +379,192 @@ function transferAnalytics(){
 
  return body;
 }
+
+function analyticsWeeks(info){
+ const dates=Array.isArray(info.daily)?info.daily:[];
+ const months=new Map();
+ for(const record of dates){
+   if(!record.day||!String(record.day).match(/^\d{4}-\d{2}-\d{2}$/))continue;
+   const day=Number(String(record.day).slice(8)),index=Math.floor((day-1)/7);
+   if(!months.has(index))months.set(index,{
+     start:1+index*7,from:String(record.day),to:String(record.day),
+     amount:0,count:0
+   });
+   const group=months.get(index);
+   group.amount+=Number(record.amount_minor||0);
+   group.count+=Number(record.purchases||0);
+   group.to=String(record.day);
+ }
+ return [...months.values()];
+}
+function compactRub(amountMinor){
+ const rub=Number(amountMinor||0)/100;
+ if(rub>=1000000)return (rub/1000000).toLocaleString('ru-RU',{maximumFractionDigits:1})+' млн';
+ if(rub>=1000)return (rub/1000).toLocaleString('ru-RU',{maximumFractionDigits:1})+' тыс.';
+ return Math.round(rub).toLocaleString('ru-RU')+' ₽';
+}
+function analyticsChangeCard(info){
+ const previous=Number(info.previous_total_minor||0),current=Number(info.month_total_minor||0);
+ const label=info.is_partial_month?'За тот же период прошлого месяца':'К предыдущему месяцу';
+ const diff=previous>0?(current-previous)/previous*100:null;
+ const positive=diff!==null&&diff>0;
+ let headline;
+ if(diff===null)headline='<div class="trend-diff-text">Пока не с чем сравнивать</div>';
+ else if(Math.abs(diff)<.05)headline='<div class="trend-diff neutral">≈ 0%</div>';
+ else headline='<div class="trend-diff '+(positive?'up':'down')+'">'+
+     (diff>0?'+':'−')+Math.abs(diff).toLocaleString('ru-RU',{maximumFractionDigits:1})+'%</div>';
+ return '<section class="surface compare-card">'+
+  '<div class="between"><span class="kicker">Изменение расходов</span>'+
+   '<span class="status-chip">'+(info.is_partial_month?'За прошедшие дни':'Полные месяцы')+'</span></div>'+
+  headline+
+  '<div class="sub" style="margin:3px 0 13px">'+esc(label)+'</div>'+
+  '<div class="compare-values">'+
+   '<div><span class="kicker">Выбранный месяц</span><strong>'+fmt(current)+'</strong></div>'+
+   '<span aria-hidden="true" class="compare-arrow">↔</span>'+
+   '<div><span class="kicker">Прошлый период</span><strong>'+fmt(previous)+'</strong></div>'+
+  '</div>'+
+  (diff===null?'<div class="footerhint">Динамика в процентах появится, когда будут расходы за предыдущий период.</div>':'')+
+  '</section>';
+}
+function analyticsTrendChart(info){
+ const weekly=analyticsWeeks(info);
+ if(!weekly.length)return '<div class="surface empty">Пока нет данных для графика.</div>';
+ const max=Math.max(1,...weekly.map(x=>x.amount));
+ const full=weekly.length<5?'analytics-bars small-bars':'analytics-bars';
+ let html='<div class="surface trend-panel"><div class="between" style="margin-bottom:12px">'+
+    '<div><div class="kicker">Расходы по неделям</div>'+
+     '<div class="sub" style="margin-top:5px">Нажми столбец, чтобы увидеть покупки</div></div>'+
+    '<span class="sub">'+weekly.length+' '+ruPlural(weekly.length,'неделя','недели','недель')+'</span></div>'+
+   '<div class="'+full+'">';
+ for(const w of weekly){
+   const height=w.amount?Math.max(6,Math.round(100*w.amount/max)):0;
+   html+='<button type="button" class="analytics-week" data-from="'+esc(w.from)+
+     '" data-to="'+esc(w.to)+'" onclick="openAnalyticsPeriod(this.dataset.from,this.dataset.to)"'+
+     ' aria-label="'+esc('Покупки за '+w.start+'–'+(w.start+6)+' число: '+fmt(w.amount))+'">'+
+     '<span class="analytics-week-value">'+(w.amount?compactRub(w.amount):'—')+'</span>'+
+     '<span class="analytics-bar-track"><span class="analytics-bar-fill" style="height:'+height+'%"></span></span>'+
+     '<span class="analytics-week-label">'+w.start+'–'+(w.start+6)+'</span></button>';
+ }
+ return html+'</div></div>';
+}
+function analyticsPlaceSummary(){
+ const groups=(state.report.place_groups||[]).filter(x=>x.currency==='RUB')
+   .sort((a,b)=>Number(b.amount_minor)-Number(a.amount_minor));
+ const sum=groups.reduce((n,x)=>n+Number(x.amount_minor||0),0);
+ if(!groups.length)return '<div class="surface empty">Нет данных о местах покупок.</div>';
+ let html='<div class="surface place-summary">';
+ for(const x of groups){
+   const amount=Number(x.amount_minor||0);
+   const pct=sum?Math.round(amount*100/sum):0;
+   const label=x.kind==='unknown'?'Не указано':PLACE_KIND_LABELS[x.kind]||'Другие места';
+   const glyph={marketplace:'▣',grocery_delivery:'♧',offline:'⌂',food:'☕',service:'◇',unknown:'?'}[x.kind]||'•';
+   html+='<div class="analytics-group"><div class="analytics-group-icon" aria-hidden="true">'+glyph+'</div>'+
+     '<div class="grow"><div class="between" style="gap:8px"><span class="analytics-group-label">'+esc(label)+'</span>'+
+     '<strong>'+fmt(amount)+'</strong></div>'+
+     '<div class="analytics-progress"><span style="width:'+Math.min(100,pct)+'%"></span></div></div>'+
+     '<span class="analytics-percent">'+pct+'%</span></div>';
+ }
+ return html+'</div>';
+}
+function analyticsLargest(info){
+ const purchases=Array.isArray(info.largest)?info.largest:[];
+ if(!purchases.length)return '<div class="surface empty">Крупных покупок пока нет.</div>';
+ return '<div class="surface compact-list">'+purchases.map((t,i)=>
+   '<button type="button" class="analytics-purchase-row" data-id="'+esc(t.id)+'" onclick="tx(this.dataset.id)">'+
+   '<span class="analytics-rank">'+(i+1)+'</span>'+
+   '<span class="grow"><span class="itemname" style="display:block">'+esc(t.note||t.merchant||'Покупка')+'</span>'+
+   '<span class="line2" style="display:block">'+esc(shortDate(t.occurred_on))+
+   ' · '+esc(placeLabel(t.place_id||'unknown'))+'</span></span>'+
+   '<strong class="itemprice">'+fmt(t.amount_minor,t.currency)+'</strong>'+
+   '<span class="cat-chevron">›</span></button>'
+ ).join('')+'</div>';
+}
 function analytics(){
- const rows=(state.report.categories||[]).filter(x=>x.currency==='RUB').sort((a,b)=>Number(b.amount_minor)-Number(a.amount_minor));
- const max=Math.max(1,...rows.map(x=>Number(x.amount_minor)));
+ const report=(state.report.categories||[]).filter(x=>x.currency==='RUB')
+  .sort((a,b)=>Number(b.amount_minor)-Number(a.amount_minor));
+ const max=Math.max(1,...report.map(x=>Number(x.amount_minor)));
+ const info=state.insightsMonth===state.month?state.insights:null;
  const descriptions=(state.report.merchants||[]).filter(x=>x.currency==='RUB').slice(0,10);
- return '<div class="page-intro"><div><h1>Аналитика</h1>'+
-    '<div class="sub">На что и где уходят деньги</div></div></div>'+
-   monthpicker()+
-   '<section class="surface insight-total">'+
-     '<div><div class="kicker">Всего расходов</div>'+
-       '<div class="sub" style="margin-top:7px">'+rows.length+' '+ruPlural(rows.length,'категория','категории','категорий')+' за месяц</div></div>'+
-     '<strong>'+fmt(anyRUB()?.amount_minor||0)+'</strong></section>'+
-   '<div class="sectiontitle"><h2>По категориям</h2><span class="sub">Нажми для детализации</span></div>'+
-   '<div class="surface category-panel">'+(rows.length?
-      rows.map(x=>catBar(x.category,Number(x.amount_minor),max,x.category_id)).join(''):
-      '<div class="empty">Пока нет расходов для аналитики.</div>')+'</div>'+
-   placeAnalytics()+
+ let html='<div class="page-intro"><div><h1>Аналитика</h1>'+
+   '<div class="sub">Динамика, привычки и крупные покупки</div></div></div>'+monthpicker();
+ if(!info){
+   html+='<div class="surface empty" style="margin:10px 0 15px">'+
+     (state.insightsError?esc(state.insightsError):'Загружаю аналитику…')+
+     (state.insightsError?'<br><button class="button secondary" style="margin-top:12px" onclick="loadInsights()">Повторить</button>':'')+
+    '</div>';
+ }else{
+   const days=Number(info.active_days||0),avg=Number(info.average_purchase_minor||0);
+   html+=analyticsChangeCard(info)+
+    '<div class="sectiontitle"><h2>Динамика</h2></div>'+analyticsTrendChart(info)+
+    '<div class="quick-stats analytics-kpis">'+
+       '<div class="stat-card"><div class="stat-top"><span class="kicker">Активных дней</span><span class="stat-icon">◷</span></div>'+
+        '<strong>'+days+'</strong><span class="sub">Дней с покупками</span></div>'+
+       '<div class="stat-card"><div class="stat-top"><span class="kicker">Средний чек</span><span class="stat-icon">₽</span></div>'+
+        '<strong class="analytics-average">'+fmt(avg)+'</strong><span class="sub">На одну покупку</span></div>'+
+    '</div>';
+ }
+ html+='<div class="sectiontitle"><h2>Где тратишь</h2><span class="sub">По типам мест</span></div>'+
+   analyticsPlaceSummary()+
+   '<details class="surface disclosure analytics-disclosure"><summary>Все магазины и площадки</summary>'+
+     '<div class="analytics-disclosure-body">'+placeAnalytics()+'</div></details>';
+ if(info)html+='<div class="sectiontitle"><h2>Самые крупные покупки</h2>'+
+    '<button type="button" onclick="tab(\'history\')">История ↗</button></div>'+analyticsLargest(info);
+ html+='<details class="surface disclosure analytics-disclosure"><summary>Все категории расходов'+
+   '<span class="sub" style="margin-left:auto;margin-right:8px">'+report.length+'</span></summary>'+
+   '<div class="analytics-disclosure-body">'+
+     (report.length?report.map(x=>catBar(x.category,Number(x.amount_minor),max,x.category_id)).join(''):
+      '<div class="empty">Пока нет покупок по категориям.</div>')+
+   '</div></details>'+
+   transferAnalytics()+
    (descriptions.length?
-     '<details class="surface disclosure"><summary>По описанию покупки <span class="sub" style="margin-left:auto;margin-right:8px">'+descriptions.length+' позиций</span></summary>'+
-       '<div class="dash" style="margin:0">'+descriptions.map(x=>
-        '<div class="listitem"><div class="avatar">'+shopIcon(x.merchant)+'</div>'+
-         '<div class="grow"><div class="itemname">'+esc(x.merchant)+'</div></div>'+
-         '<div class="itemprice">'+fmt(x.amount_minor)+'</div></div>').join('')+'</div></details>':'')+
-   '<div class="footerhint" style="margin:18px 2px">Переводы учитываются отдельно от покупок. Суммы в разных валютах не конвертируются автоматически.</div>';
+     '<details class="surface disclosure analytics-disclosure"><summary>По описанию покупки'+
+      '<span class="sub" style="margin-left:auto;margin-right:8px">'+descriptions.length+'</span></summary>'+
+      '<div class="analytics-disclosure-body">'+descriptions.map(x=>
+       '<div class="listitem"><div class="avatar">'+shopIcon(x.merchant)+'</div>'+
+        '<div class="grow"><div class="itemname">'+esc(x.merchant)+'</div></div>'+
+        '<div class="itemprice">'+fmt(x.amount_minor)+'</div></div>').join('')+
+      '</div></details>':'')+
+   '<div class="footerhint" style="margin:18px 3px">В графиках и сравнениях учтены только личные расходы в рублях. Переводы и другие валюты считаются отдельно.</div>';
+ return html;
+}
+async function openAnalyticsPeriod(first,last){
+ const context={from:first,to:last};
+ state.analyticsPeriodContext=context;
+ const intro='<div class="between"><div><div class="kicker">Детализация по неделе</div>'+
+  '<h2 style="margin:5px 0">'+esc(first.slice(8))+'–'+esc(last.slice(8))+' '+esc(ledgerMonthLabel(first.slice(0,7)))+'</h2></div>'+
+  '<button class="iconbtn" onclick="closeModal()" aria-label="Закрыть">'+ico('close')+'</button></div>';
+ sheet(intro+'<div class="surface empty" style="margin-top:14px">Загружаю операции…</div>');
+ try{
+   const url='analytics-range?from='+encodeURIComponent(first)+'&to='+encodeURIComponent(last);
+   const data=await api(url);
+   if(state.analyticsPeriodContext!==context)return;
+   const records=Array.isArray(data.transactions)?data.transactions:[];
+   const total=records.reduce((acc,x)=>acc+Number(x.amount_minor||0),0);
+   let html=intro+'<div class="surface insight-total" style="margin-top:16px">'+
+    '<div><div class="kicker">Покупки за период</div>'+
+    '<div class="sub" style="margin-top:5px">'+records.length+' '+ruPlural(records.length,'покупка','покупки','покупок')+'</div></div>'+
+    '<strong>'+fmt(total)+'</strong></div>';
+   html+='<div class="surface compact-list" style="margin-top:14px">'+
+    (records.map(x=>'<button class="analytics-purchase-row" data-id="'+esc(x.id)+
+     '" onclick="openAnalyticsTransaction(this.dataset.id)"><span class="avatar">'+shopIcon(x.merchant)+'</span>'+
+     '<span class="grow"><span class="itemname" style="display:block">'+esc(x.merchant||x.note||'Покупка')+'</span>'+
+     '<span class="line2" style="display:block">'+esc(shortDate(x.occurred_on))+' · '+
+       esc(placeLabel(x.place_id||'unknown'))+'</span></span>'+
+     '<strong class="itemprice">'+fmt(x.amount_minor,x.currency)+'</strong>'+
+     '<span class="cat-chevron">›</span></button>').join('')||
+       '<div class="empty">В этой неделе покупок нет.</div>')+'</div>';
+   if(data.truncated)html+='<div class="note warn" style="margin-top:12px">Показаны первые 500 покупок. Для полного списка уточни период.</div>';
+   sheet(html);
+ }catch(e){
+   if(state.analyticsPeriodContext!==context)return;
+   sheet(intro+'<div class="note warn" style="margin-top:14px">'+esc(e.message)+'</div>'+
+    '<button class="button secondary full" data-from="'+esc(first)+'" data-to="'+esc(last)+
+      '" onclick="openAnalyticsPeriod(this.dataset.from,this.dataset.to)">Повторить</button>');
+ }
+}
+function openAnalyticsTransaction(id){
+ const period=state.analyticsPeriodContext;
+ return tx(id,period?{type:'period',from:period.from,to:period.to}:null);
 }
 function render(){if(!AUTH){page().innerHTML=header()+'<div class="surface launchmsg"><h2>Открой внутри Telegram</h2><p class="fade">Для безопасности данные доступны только через меню твоего финансового бота.</p></div>';return;}if(state.loading){page().innerHTML=header()+'<div class="skeleton"></div>';return;}page().innerHTML=header()+({home:overview,history,drafts,analytics}[state.tab]||overview)();nav()}
 async function load(){if(!AUTH){render();return;}state.loading=true;render();try{const data=await api('state?month='+encodeURIComponent(state.month));state.rows=data.transactions||[];state.drafts=data.drafts||[];state.textBatches=data.batches||[];state.places=data.places||[];state.placeTypes=data.placeTypes||[];state.categories=data.categories||[];state.rules=data.rules||[];state.transfers=data.transfers||[];state.report=data.report||{currencies:[],categories:[],merchants:[]};state.loading=false;render();if(state.tab==='analytics')loadInsights();if(!state.deepLinkOpened){const batch=new URLSearchParams(location.search).get('batch');state.deepLinkOpened=true;if(batch&&/^[0-9a-f-]{36}$/i.test(batch))await openTextBatch(batch)}}catch(e){state.loading=false;page().innerHTML=header()+`<div class="surface empty">${esc(e.message)}<br><button class="button secondary" style="margin:12px" onclick="load()">Повторить</button></div>`}}
