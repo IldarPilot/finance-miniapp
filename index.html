@@ -354,6 +354,24 @@ function drafts(){
     'Новых чеков и списков на проверке нет. Отправь покупку боту — она появится здесь.</div>';
  return view+'<div class="footerhint" style="margin:20px 2px">Изменения категорий, площадок и долей сохраняются в черновике. В расходы покупка попадёт только после подтверждения.</div>';
 }
+function openMissingPlaces(){
+ const purchases=(state.rows||[]).filter(t=>t.currency==='RUB'&&(!t.place_id||t.place_id==='unknown'));
+ let html='<div class="between"><div><div class="kicker">Детализация аналитики</div>'+
+    '<h2 style="margin:5px 0">Место покупки не указано</h2></div>'+
+    '<button class="iconbtn" aria-label="Закрыть" onclick="closeModal()">'+ico('close')+'</button></div>'+
+    '<div class="note" style="margin:15px 0">Категории этих расходов уже определены. Магазин или сервис можно уточнить, открыв покупку.</div>';
+ if(!purchases.length)html+='<div class="surface empty">В загруженной истории этого месяца таких покупок нет.</div>';
+ else{
+   html+='<div class="surface compact-list">'+purchases.map(t=>
+     '<button type="button" class="analytics-purchase-row" data-id="'+esc(t.id)+'" onclick="tx(this.dataset.id)">'+
+     '<span class="avatar">⌖</span><span class="grow"><span class="itemname" style="display:block">'+esc(t.note||t.merchant||'Покупка')+'</span>'+
+     '<span class="line2" style="display:block">'+esc(shortDate(t.occurred_on))+'</span></span>'+
+     '<strong class="itemprice">'+fmt(t.amount_minor,t.currency)+'</strong>'+
+     '<span class="cat-chevron">›</span></button>').join('')+'</div>';
+   if(state.rows.length>=400)html+='<div class="footerhint">Показаны записи из 400 последних покупок. Если список неполный, найди нужную покупку в истории.</div>';
+ }
+ sheet(html);
+}
 function placeAnalytics(){
  const all=(state.report.places||[]).filter(x=>x.currency==='RUB');
  const kinds=['marketplace','grocery_delivery','offline','food','service','unknown'];
