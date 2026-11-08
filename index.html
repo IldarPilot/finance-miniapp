@@ -641,7 +641,7 @@ async function loadInsights(){
  }
 }
 function tab(t){state.tab=t;render();if(t==='analytics'&&state.insightsMonth!==state.month)loadInsights()}function setFilter(f){state.filter=f;render()}function changeMonth(offset){let y=+state.month.slice(0,4),m=+state.month.slice(5);let d=new Date(Date.UTC(y,m-1+offset,1));state.month=d.toISOString().slice(0,7);load()}
-function closeModal(){state.categoryLedgerContext=null;el('modal').innerHTML=''}
+function closeModal(){state.categoryLedgerContext=null;state.analyticsPeriodContext=null;el('modal').innerHTML=''}
 function sheet(contents){el('modal').innerHTML=`<div class="sheetback" onclick="if(event.target===this)closeModal()"><div class="sheet"><div class="handle"></div>${contents}</div></div>`}
 
 const BATCH_MODES={expense:'Покупка',external:'Перевод другому',own:'Между своими счетами',exclude:'Не учитывать'};
@@ -1022,7 +1022,20 @@ function openCategoryTransaction(id){
  return tx(id,state.categoryLedgerContext||null);
 }
 
-async function tx(id,returnContext=null){try{const v=await api('transaction?id='+encodeURIComponent(id));let t=v.transaction,items=v.items||[];state.selected={type:'tx',id,returnContext};sheet(`${returnContext?'<button type="button" class="txtlink" style="margin:0 0 12px" data-cat="'+esc(returnContext.categoryId)+'" data-place="'+esc(returnContext.placeId||'')+'" onclick="openCategoryLedger(this.dataset.cat,this.dataset.place||null)">← К выписке категории</button>':''}<div class="between"><div><div class="kicker">${esc(t.occurred_on)}</div><h2 style="margin:5px 0">${esc(t.merchant||'Покупка')}</h2></div><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><h1 style="margin:17px 0 2px">${fmt(t.amount_minor,t.currency)}</h1><div class="sub">${t.gross_amount_minor&&t.gross_amount_minor!==t.amount_minor?'Полный счёт '+fmt(t.gross_amount_minor,t.currency):'Личные расходы'}</div><div class="sectiontitle"><h2>Где куплено</h2></div>${selectPlace(t.place_id||'unknown',id,'saved')}<div class="sectiontitle"><h2>Позиции · ${items.length}</h2></div>${items.map((x,i)=>`<div class="itemedit"><div class="grow"><div class="itemeditname">${esc(x.title)}</div><div class="itemeditsum">${fmt(x.amount_minor,t.currency)}</div></div>${selectCategory(x.category_id,x.id,'saved',i,id)}</div>`).join('')||'<div class="empty">Нет товарных позиций</div>'}<div class="buttonrow" style="margin-top:24px"><button class="button secondary" onclick="closeModal()">Закрыть</button><button class="button danger" onclick="deleteTx('${id}')">Удалить</button></div>`)}catch(e){toast(e.message)}}
+function transactionBackLink(context){
+ if(!context)return '';
+ if(context.type==='period'){
+  return '<button type="button" class="txtlink" style="margin:0 0 12px" data-from="'+esc(context.from)+
+   '" data-to="'+esc(context.to)+'" onclick="openAnalyticsPeriod(this.dataset.from,this.dataset.to)">← К неделе</button>';
+ }
+ if(context.categoryId){
+  return '<button type="button" class="txtlink" style="margin:0 0 12px" data-cat="'+esc(context.categoryId)+
+   '" data-place="'+esc(context.placeId||'')+
+   '" onclick="openCategoryLedger(this.dataset.cat,this.dataset.place||null)">← К выписке категории</button>';
+ }
+ return '';
+}
+async function tx(id,returnContext=null){try{const v=await api('transaction?id='+encodeURIComponent(id));let t=v.transaction,items=v.items||[];state.selected={type:'tx',id,returnContext};sheet(`${transactionBackLink(returnContext)}<div class="between"><div><div class="kicker">${esc(t.occurred_on)}</div><h2 style="margin:5px 0">${esc(t.merchant||'Покупка')}</h2></div><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><h1 style="margin:17px 0 2px">${fmt(t.amount_minor,t.currency)}</h1><div class="sub">${t.gross_amount_minor&&t.gross_amount_minor!==t.amount_minor?'Полный счёт '+fmt(t.gross_amount_minor,t.currency):'Личные расходы'}</div><div class="sectiontitle"><h2>Где куплено</h2></div>${selectPlace(t.place_id||'unknown',id,'saved')}<div class="sectiontitle"><h2>Позиции · ${items.length}</h2></div>${items.map((x,i)=>`<div class="itemedit"><div class="grow"><div class="itemeditname">${esc(x.title)}</div><div class="itemeditsum">${fmt(x.amount_minor,t.currency)}</div></div>${selectCategory(x.category_id,x.id,'saved',i,id)}</div>`).join('')||'<div class="empty">Нет товарных позиций</div>'}<div class="buttonrow" style="margin-top:24px"><button class="button secondary" onclick="closeModal()">Закрыть</button><button class="button danger" onclick="deleteTx('${id}')">Удалить</button></div>`)}catch(e){toast(e.message)}}
 async function openDraft(id){try{const v=await api('draft?id='+encodeURIComponent(id));let d=v.draft,p=d.payload||{},items=p.items||[];state.selected={type:'draft',id};const total=items.reduce((s,x)=>s+(Number(x.amount_minor)||0),0),mine=items.reduce((s,x)=>s+(Number(x.my_minor??x.amount_minor)||0),0);const payment=p.source==='marketplace_order'&&p.payment_status!=='paid';
 const splitSummary=mine!==Number(p.total_minor);
 const draftSummary='<div class="surface insight-total" style="margin:16px 0">'+
