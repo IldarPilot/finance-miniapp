@@ -345,10 +345,14 @@ function placeAnalytics(){
      '<button class="button secondary full" style="margin-top:14px" onclick="openMissingPlaces()">Указать место покупки</button>'+
      '</div>';
  }
+ return body;
+}
+function transferAnalytics(){
+ let body='';
  const transfers=(state.report.transfers||[]).filter(x=>x.currency==='RUB');
  const details=state.transfers||[];
  const transferSum=transfers.reduce((acc,x)=>acc+Number(x.amount_minor||0),0);
- body+='<div class="sectiontitle"><h2>Денежные переводы</h2></div>';
+ body+='<div class="sectiontitle"><h2>Переводы — отдельно от расходов</h2></div>';
  if(!transfers.length&&!details.length){
    body+='<div class="surface" style="padding:17px 18px"><div class="between">'+
      '<span class="sub">Переводов в выбранном месяце нет</span>'+
@@ -371,6 +375,7 @@ function placeAnalytics(){
         '<button class="iconbtn" aria-label="Удалить перевод" data-id="'+esc(t.id)+'" onclick="deleteTransfer(this.dataset.id)">✕</button></div>'
       ).join(''):'')+'</details>';
  }
+
 
  return body;
 }
