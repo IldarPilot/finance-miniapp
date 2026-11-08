@@ -151,6 +151,13 @@ h2{font-size:18px;font-weight:750;letter-spacing:-.4px;line-height:1.3}
 @media(max-width:380px){.app{padding:14px 14px 20px}.hero{padding:20px 18px}.hero .heroamount{font-size:34px}.hero .period{min-width:148px}.hero .period .label{font-size:11px}.header{gap:7px}.brandmark{width:37px;height:37px}.brandname{font-size:14px}.header-actions{gap:5px}.iconbtn{height:38px;width:38px}.stat-card{padding:14px}.sheet{padding-left:15px;padding-right:15px}.itemedit .select{min-width:112px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;scroll-behavior:auto!important;transition:none!important}}
 
+.select-with-add{display:flex;align-items:center;gap:8px;width:100%;min-width:0}
+.select-with-add select{flex:1;min-width:0!important;max-width:100%!important;margin:4px 0 10px}
+.inline-add{width:41px;height:41px;flex:0 0 41px;background:var(--green-light);color:var(--green);border:1px solid rgba(85,175,141,.14);border-radius:13px;font-size:23px;line-height:1;display:grid;place-items:center;margin:0 0 6px}
+.inline-add:active{transform:scale(.96)}
+.sheet .itemedit .select-with-add{max-width:205px;flex:0 1 205px}
+.sheet .itemedit .select-with-add select{font-size:12px;padding:10px 7px}
+@media(max-width:440px){.sheet .itemedit{display:grid;grid-template-columns:1fr;gap:6px}.sheet .itemedit .select-with-add{max-width:100%;width:100%}.sheet .itemedit .select-with-add select{font-size:13px}.sheet .itemedit .itemeditname{font-size:14px}}
 </style></head><body><main class="app" id="app"><div class="header"><div class="brand"><div class="brandmark">₽</div><div><div class="brandname">Мои финансы</div><div class="sub">Telegram Mini App</div></div></div><button class="iconbtn" aria-label="Обновить" onclick="load()">↻</button></div><div class="skeleton"></div></main><nav class="nav" id="nav" hidden></nav><button class="floatadd" id="add" hidden onclick="openAdd()" aria-label="Добавить расход">+</button><div id="modal"></div><div id="toast"></div><script>
 
 'use strict';
@@ -412,14 +419,14 @@ function batchEditorGroup(id,category,entries,expanded){
     '<button class="button full" onclick="saveBatchDetails(\''+id+'\','+i+')">Сохранить название и сумму</button>'+
     '<label class="formlabel">Тип операции</label><select class="input" onchange="changeBatchField(\''+id+'\','+i+',\'mode\',this.value)">'+
       Object.entries(BATCH_MODES).map(([k,v])=>'<option value="'+k+'" '+(mode===k?'selected':'')+'>'+esc(v)+'</option>').join('')+'</select>'+
-    '<label class="formlabel">Категория</label><select class="input" onchange="changeBatchField(\''+id+'\','+i+',\'category\',this.value)">'+
+    '<label class="formlabel">Категория</label><div class="select-with-add"><select class="input" onchange="changeBatchField(\''+id+'\','+i+',\'category\',this.value)">'+
       categoryOptions().map(c=>'<option value="'+esc(c.id)+'" '+(x.category===c.id?'selected':'')+'>'+esc(c.name)+'</option>').join('')+
       '<option value="__new__">＋ Создать новую категорию…</option></select>'+
-    '<button class="txtlink" style="justify-self:start;padding:6px 0" onclick="newCatalog(\'category\',{source:\'batch\',kind:\'category\',id:\''+id+'\',index:'+i+'})">＋ Добавить свою категорию</button>'+
-    '<label class="formlabel">Место покупки</label><select class="input" onchange="changeBatchField(\''+id+'\','+i+',\'place\',this.value)">'+
+    '<button class="inline-add" type="button" title="Новая категория" aria-label="Новая категория" onclick="newCatalog(\'category\',{source:\'batch\',kind:\'category\',id:\''+id+'\',index:'+i+'})">＋</button></div>'+
+    '<label class="formlabel">Место покупки</label><div class="select-with-add"><select class="input" onchange="changeBatchField(\''+id+'\','+i+',\'place\',this.value)">'+
       (state.places||[]).map(p=>'<option value="'+esc(p.id)+'" '+(x.place_id===p.id?'selected':'')+'>'+esc(p.id==='unknown'?'Место не указано':p.name)+'</option>').join('')+
       '<option value="__new__">＋ Создать новое место…</option></select>'+
-    '<button class="txtlink" style="justify-self:start;padding:6px 0" onclick="newCatalog(\'place\',{source:\'batch\',kind:\'place\',id:\''+id+'\',index:'+i+'})">＋ Добавить своё место</button>'+
+    '<button class="inline-add" type="button" title="Новое место покупки" aria-label="Новое место покупки" onclick="newCatalog(\'place\',{source:\'batch\',kind:\'place\',id:\''+id+'\',index:'+i+'})">＋</button></div>'+
     '</div></details>';
  }
  return result+'</div>';
@@ -444,12 +451,12 @@ async function openTextBatch(id,expanded=-1){
     '<div class="surface smallcard" style="margin:14px 0"><div class="kicker">К сохранению</div>'+
     '<div class="number" style="font-size:25px;margin:4px 0">'+fmt(total)+'</div>'+
     '<div class="sub">'+purchases.length+' покупок · '+transfers.length+' переводов · '+(items.length-purchases.length-transfers.length)+' исключено</div></div>'+
-    '<div class="note">Бот предложил категории автоматически. Нажми на товар, только если хочешь что-то исправить.</div>'+  '<button class="txtlink" style="margin-top:9px" onclick="openCatalog()">＋ Добавить категорию или место</button>';
+    '<div class="note">Бот предложил категории автоматически. Нажми на товар, только если хочешь что-то исправить.</div>'+  '<span class="sub" style="display:block;margin-top:9px">Создать свой пункт можно кнопкой ＋ рядом с нужным полем.</span>';
   for(const [category,entries] of groups)html+=batchEditorGroup(id,category,entries,expanded);
   if(separate.length)html+=batchEditorGroup(id,'__separate__',separate,expanded);
   html+='<div style="display:grid;gap:10px;margin-top:20px">'+
     '<button class="button positive full" onclick="confirmTextBatch(\''+id+'\')" '+(purchases.length+transfers.length?'':'disabled')+'>Подтвердить операции</button>'+
-    '<button class="button full" onclick="cancelTextBatch(\''+id+'\')">Отменить список</button></div>';
+    '<button class="button secondary full" onclick="cancelTextBatch(\''+id+'\')">Отменить список</button></div>';
   sheet(html);
  }catch(e){toast(e.message)}
 }
@@ -684,19 +691,19 @@ async function deleteCatalogRule(id){
 function selectPlace(value,id,kind){
  const options=state.places.length?state.places:Object.entries(PLACE_FALLBACK).map(([id,name])=>({id,name}));
  const ctx="{source:'"+kind+"',kind:'place',id:'"+id+"'}";
- return '<div style="display:grid;gap:7px">'+
+ return '<div class="select-with-add">'+
   '<select class="select" aria-label="Место покупки" onchange="if(this.value===\'__new__\')newCatalog(\'place\','+ctx+');else updatePlace(\''+kind+'\',\''+id+'\',this.value)">'+
-  options.map(p=>'<option value="'+esc(p.id)+'" '+(p.id===value?'selected':'')+'>'+esc(p.id==='unknown'?'Не указано':p.name)+'</option>').join('')+
+  options.map(p=>'<option value="'+esc(p.id)+'" '+(p.id===value?'selected':'')+'>'+esc(p.id==='unknown'?'Место не указано':p.name)+'</option>').join('')+
   '<option value="__new__">＋ Создать новое место…</option></select>'+
-  '<button class="txtlink" style="justify-self:start;padding:7px 0" onclick="newCatalog(\'place\','+ctx+')">＋ Добавить своё место покупки</button></div>';
+  '<button type="button" class="inline-add" title="Создать место покупки" aria-label="Создать место покупки" onclick="newCatalog(\'place\','+ctx+')">＋</button></div>';
 }
 function selectCategory(value,id,kind,idx,parentId=''){
  const ctx="{source:'"+kind+"',kind:'category',id:'"+id+"',index:"+idx+",parent:'"+parentId+"'}";
- return '<div style="display:grid;gap:7px;min-width:150px">'+
+ return '<div class="select-with-add">'+
   '<select class="select" aria-label="Категория покупки" onchange="if(this.value===\'__new__\')newCatalog(\'category\','+ctx+');else updateCategory(\''+kind+'\',\''+id+'\','+idx+',this.value)">'+
   categoryOptions().map(c=>'<option value="'+esc(c.id)+'" '+(c.id===value?'selected':'')+'>'+esc(c.name)+'</option>').join('')+
   '<option value="__new__">＋ Создать категорию…</option></select>'+
-  '<button class="txtlink" style="justify-self:start;padding:7px 0" onclick="newCatalog(\'category\','+ctx+')">＋ Своя категория</button></div>';
+  '<button type="button" class="inline-add" title="Создать категорию" aria-label="Создать категорию" onclick="newCatalog(\'category\','+ctx+')">＋</button></div>';
 }
 
 function ledgerMonthLabel(month){
