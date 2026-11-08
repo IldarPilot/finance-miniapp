@@ -178,8 +178,15 @@ function toast(msg){el('toast').innerHTML=`<div class="toast">${esc(msg)}</div>`
 async function api(path,body){if(!AUTH)throw Error('Открой приложение из Telegram');let res=await fetch(new URL('https://lcbazccnalzbvfvcxyoe.supabase.co/functions/v1/finance-app/api/'+path),{method:body?'POST':'GET',headers:{'x-telegram-init-data':AUTH,...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,cache:'no-store'});let v=await res.json().catch(()=>({error:'Некорректный ответ сервера'}));if(!res.ok)throw Error(v.error||'Ошибка соединения');return v}
 const navData=[['home','home','Обзор'],['history','history','История'],['drafts','scan','Документы'],['analytics','chart','Аналитика']];
 function nav(){el('nav').hidden=false;el('nav').innerHTML=navData.map(([id,ic,name])=>`<button class="${state.tab===id?'active':''}" onclick="tab('${id}')">${ico(ic)}<span>${name}</span></button>`).join('');el('add').hidden=state.tab==='drafts'}
-function header(){return `<div class="header"><div class="brand"><div class="brandmark">₽</div><div><div class="brandname">Мои финансы</div><div class="sub">Учёт личных расходов</div></div></div><div style="display:flex;gap:6px"><button class="iconbtn" aria-label="Категории и правила" onclick="openCatalog()">⚙</button><button class="iconbtn" aria-label="Обновить" onclick="load()">↻</button></div></div>`}
-function monthpicker(){return `<div class="period"><button class="mutebtn" onclick="changeMonth(-1)">‹</button><span class="label">${new Date(state.month+'-01T12:00:00').toLocaleDateString('ru-RU',{month:'long',year:'numeric'})}</span><button class="mutebtn" onclick="changeMonth(1)">›</button></div>`}
+function header(){return '<header class="header">'+
+ '<div class="brand"><div class="brandmark" aria-hidden="true">₽</div>'+
+ '<div><div class="brandname">Мои финансы</div><div class="sub">Расходы под контролем</div></div></div>'+
+ '<div class="header-actions"><button type="button" class="iconbtn" title="Категории, магазины и правила" aria-label="Категории, магазины и правила" onclick="openCatalog()">⚙</button>'+
+ '<button type="button" class="iconbtn" title="Обновить данные" aria-label="Обновить данные" onclick="load()">↻</button></div></header>'}
+function monthpicker(){return '<div class="period" aria-label="Выбранный месяц">'+
+ '<button type="button" class="mutebtn" aria-label="Предыдущий месяц" onclick="changeMonth(-1)">‹</button>'+
+ '<span class="label">'+new Date(state.month+'-01T12:00:00').toLocaleDateString('ru-RU',{month:'long',year:'numeric'})+'</span>'+
+ '<button type="button" class="mutebtn" aria-label="Следующий месяц" onclick="changeMonth(1)">›</button></div>'}
 function categoryIdByName(name){
  return (state.report.categories||[]).find(x=>x.currency==='RUB'&&x.category===name)?.category_id||
         state.categories.find(x=>x.name===name)?.id||null;
@@ -195,7 +202,36 @@ function catBar(name,amount,max,categoryId=null,placeId=null){
  return '<div class="catrow">'+content+'</div>';
 }
 const anyRUB=()=>state.report.currencies.find(c=>c.currency==='RUB');
-function overview(){const total=Number(anyRUB()?.amount_minor||0),r=state.report.categories.filter(c=>c.currency==='RUB'),max=Math.max(...r.map(x=>Number(x.amount_minor)),1),drafts=state.drafts.length+state.textBatches.length;return `<section class="surface hero">${monthpicker()}<div class="kicker">Мои расходы</div><div class="heroamount">${fmt(total)}</div><div class="sub">${anyRUB()?.count||0} покупок за выбранный месяц</div>${state.report.currencies.filter(c=>c.currency!=='RUB').length?`<div class="footerhint">Другие валюты учитываются отдельно: ${state.report.currencies.filter(c=>c.currency!=='RUB').map(c=>fmt(c.amount_minor,c.currency)).join(', ')}</div>`:''}</section><div class="cards2"><div class="surface smallcard" onclick="tab('history')"><div class="kicker">Покупки</div><div class="number">${anyRUB()?.count||0}</div><div class="sub">История →</div></div><div class="surface smallcard" onclick="tab('drafts')"><div class="kicker">На проверке</div><div class="number">${drafts}</div><div class="sub">Разобрать →</div></div></div><div class="sectiontitle"><h2>Куда уходят деньги</h2><button onclick="tab('analytics')">Подробнее →</button></div><div class="sub" style="margin-bottom:6px">Нажми категорию, чтобы увидеть покупки</div>${r.length?r.slice(0,6).map(x=>catBar(x.category,Number(x.amount_minor),max,x.category_id)).join(''):'<div class="surface empty">За этот месяц расходов пока нет.<br>Отправь чек боту или добавь расход.</div>'}<div class="sectiontitle"><h2>Последние покупки</h2><button onclick="tab('history')">Вся история →</button></div><div class="surface" style="padding:0 14px">${listTx(state.rows.slice(0,5))}</div>`}
+function overview(){
+ const count=Number(anyRUB()?.count||0),total=Number(anyRUB()?.amount_minor||0);
+ const categories=(state.report.categories||[]).filter(c=>c.currency==='RUB').sort((a,b)=>Number(b.amount_minor)-Number(a.amount_minor));
+ const max=Math.max(1,...categories.map(x=>Number(x.amount_minor)));
+ const pending=(state.drafts?.length||0)+(state.textBatches?.length||0);
+ const currencies=(state.report.currencies||[]).filter(c=>c.currency!=='RUB');
+ const categoryRows=categories.length?categories.slice(0,6).map(x=>catBar(x.category,Number(x.amount_minor),max,x.category_id)).join(''):
+   '<div class="empty">Пока нет расходов за этот месяц. Добавь первую покупку кнопкой «＋».</div>';
+ return '<section class="hero" aria-label="Расходы за выбранный месяц">'+
+  '<div class="hero-top"><span class="kicker">Расходы за месяц</span>'+monthpicker()+'</div>'+
+  '<div class="heroamount">'+fmt(total)+'</div>'+
+  '<div class="hero-foot"><span class="hero-dot" aria-hidden="true"></span>'+
+   '<span>'+count+' покупок учтено</span></div>'+
+  (currencies.length?'<div class="footerhint" style="margin-top:13px">Другие валюты: '+currencies.map(c=>fmt(c.amount_minor,c.currency)).join(' · ')+'</div>':'')+
+  '</section>'+
+  '<div class="quick-stats">'+
+    '<button type="button" class="stat-card" onclick="tab(\'analytics\')" aria-label="Перейти к категориям расходов">'+
+      '<div class="stat-top"><span class="kicker">Категории</span><span class="stat-icon" aria-hidden="true">◫</span></div>'+
+      '<strong>'+categories.length+'</strong><span class="sub">Структура расходов <span aria-hidden="true">↗</span></span></button>'+
+    '<button type="button" class="stat-card" onclick="tab(\'drafts\')" aria-label="Открыть неподтверждённые покупки">'+
+      '<div class="stat-top"><span class="kicker">На проверке</span><span class="stat-icon" aria-hidden="true">⌁</span></div>'+
+      '<strong>'+pending+'</strong><span class="sub">'+(pending?'Требуют внимания':'Всё разобрано')+' <span aria-hidden="true">↗</span></span></button>'+
+  '</div>'+
+  '<div class="sectiontitle"><h2>Куда уходят деньги</h2>'+
+    '<button type="button" onclick="tab(\'analytics\')">Все категории <span aria-hidden="true">↗</span></button></div>'+
+  '<div class="surface category-panel">'+categoryRows+'</div>'+
+  '<div class="sectiontitle"><h2>Последние операции</h2>'+
+     '<button type="button" onclick="tab(\'history\')">История <span aria-hidden="true">↗</span></button></div>'+
+  '<div class="surface compact-list">'+listTx(state.rows.slice(0,4))+'</div>';
+}
 const shopIcon=x=>/ozon|wildberries|вайлдбер|wb|маркет/i.test(x)?'📦':/кафе|кофе|ресторан|бар/i.test(x)?'☕':'🧾';
 function listTx(rows){return rows.length?rows.map(t=>`<div class="listitem" onclick="tx('${t.id}')"><div class="avatar">${shopIcon(t.merchant)}</div><div class="grow"><div class="itemname">${esc(t.merchant||'Покупка')}</div><div class="line2">${esc(shortDate(t.occurred_on))} · ${esc(placeLabel(t.place_id||'unknown'))}</div></div><div class="itemprice">${fmt(t.amount_minor,t.currency)}</div></div>`).join(''):'<div class="empty">Пока нет покупок</div>'}
 function history(){let rows=state.rows.filter(t=>(state.filter==='all'||(state.filter==='manual'?t.source==='manual':t.source==='photo'))&&(!state.search||`${t.merchant} ${t.note}`.toLowerCase().includes(state.search.toLowerCase())));return `<h1>История</h1>${monthpicker()}<input class="search" placeholder="Поиск по покупкам..." value="${esc(state.search)}" oninput="state.search=this.value;el('txlist').innerHTML=listTx(state.rows.filter(t=>(state.filter==='all'||(state.filter==='manual'?t.source==='manual':t.source==='photo'))&&(!state.search||String(t.merchant+' '+t.note).toLowerCase().includes(state.search.toLowerCase()))))"><div class="chiprow"><button class="chip ${state.filter==='all'?'on':''}" onclick="setFilter('all')">Все</button><button class="chip ${state.filter==='photo'?'on':''}" onclick="setFilter('photo')">Чеки и заказы</button><button class="chip ${state.filter==='manual'?'on':''}" onclick="setFilter('manual')">Вручную</button></div><div class="surface" id="txlist" style="padding:0 15px">${listTx(rows)}</div><button class="txtlink" style="display:block;margin:24px auto;color:#bf5b65" onclick="clearHistory()">Очистить историю...</button><div class="footerhint">В истории показаны до 400 последних покупок выбранного месяца. Удалённые операции скрываются, но сохраняются в техническом архиве.</div>`}
