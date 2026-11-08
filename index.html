@@ -475,18 +475,87 @@ function selectCategory(value,id,kind,idx,parentId=''){
   '<option value="__new__">＋ Создать категорию…</option></select>'+
   '<button class="txtlink" style="justify-self:start;padding:7px 0" onclick="newCatalog(\'category\','+ctx+')">＋ Своя категория</button></div>';
 }
-async function tx(id){try{const v=await api('transaction?id='+encodeURIComponent(id));let t=v.transaction,items=v.items||[];state.selected={type:'tx',id};sheet(`<div class="between"><div><div class="kicker">${esc(t.occurred_on)}</div><h2 style="margin:5px 0">${esc(t.merchant||'Покупка')}</h2></div><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><h1 style="margin:17px 0 2px">${fmt(t.amount_minor,t.currency)}</h1><div class="sub">${t.gross_amount_minor&&t.gross_amount_minor!==t.amount_minor?'Полный счёт '+fmt(t.gross_amount_minor,t.currency):'Личные расходы'}</div><div class="sectiontitle"><h2>Где куплено</h2></div>${selectPlace(t.place_id||'unknown',id,'saved')}<div class="sectiontitle"><h2>Позиции · ${items.length}</h2></div>${items.map((x,i)=>`<div class="itemedit"><div class="grow"><div class="itemeditname">${esc(x.title)}</div><div class="itemeditsum">${fmt(x.amount_minor,t.currency)}</div></div>${selectCategory(x.category_id,x.id,'saved',i,id)}</div>`).join('')||'<div class="empty">Нет товарных позиций</div>'}<div class="buttonrow" style="margin-top:24px"><button class="button secondary" onclick="closeModal()">Закрыть</button><button class="button danger" onclick="deleteTx('${id}')">Удалить</button></div>`)}catch(e){toast(e.message)}}
+
+function ledgerMonthLabel(month){
+ return new Date(month+'-01T12:00:00').toLocaleDateString('ru-RU',{month:'long',year:'numeric'});
+}
+async function openCategoryLedger(categoryId,placeId=null){
+ const month=state.month,categoryName=categoryLabel(categoryId);
+ const context={categoryId,placeId:placeId||null,month};
+ state.categoryLedgerContext=context;
+ sheet('<div class="between"><div><div class="kicker">Выписка · '+esc(ledgerMonthLabel(month))+'</div>'+
+  '<h2 style="margin:5px 0">'+esc(categoryName)+'</h2></div>'+
+  '<button class="iconbtn" onclick="closeModal()" aria-label="Закрыть">'+ico('close')+'</button></div>'+
+  '<div class="surface empty" style="margin-top:15px">Загружаю покупки…</div>');
+ try{
+   const query=new URLSearchParams({month,category:categoryId});
+   if(placeId)query.set('place',placeId);
+   const details=await api('category-ledger?'+query.toString());
+   if(state.categoryLedgerContext!==context)return;
+   const items=Array.isArray(details.items)?details.items:[];
+   const groups=new Map();
+   for(const item of items){
+     const day=item.occurred_on||'';
+     if(!groups.has(day))groups.set(day,[]);
+     groups.get(day).push(item);
+   }
+   const placeName=placeId?placeLabel(placeId):'Все места покупок';
+   let html='<div class="between"><div><div class="kicker">Выписка · '+esc(ledgerMonthLabel(month))+'</div>'+
+      '<h2 style="margin:5px 0">'+esc(categoryName)+'</h2></div>'+
+      '<button class="iconbtn" onclick="closeModal()" aria-label="Закрыть">'+ico('close')+'</button></div>'+
+      '<div class="surface smallcard" style="margin:17px 0 14px">'+
+       '<div class="kicker">Всего по категории</div>'+
+       '<div class="number" style="font-size:26px;margin-top:5px">'+fmt(details.total_minor,details.currency||'RUB')+'</div>'+
+       '<div class="sub" style="margin-top:7px">'+
+          Number(details.purchase_count||0)+' покупок · '+Number(details.item_count||0)+' позиций</div>'+
+       '<div class="sub" style="margin-top:3px">📍 '+esc(placeName)+'</div></div>';
+   if(!items.length){
+     html+='<div class="surface empty">За выбранный месяц в этой категории нет покупок.</div>';
+   }else{
+     for(const [day,records] of groups){
+       html+='<div class="footerhint" style="margin:18px 0 6px">'+esc(shortDate(day))+'</div>'+
+        '<div class="surface" style="padding:0 14px">'+records.map(item=>{
+         const txId=item.transaction_id;
+         const merchant=item.merchant||'Без магазина';
+         const label=item.item_title||merchant||'Покупка';
+         const location=placeLabel(item.place_id||'unknown');
+         return '<button type="button" class="ledger-item" data-tx="'+esc(txId)+
+           '" onclick="openCategoryTransaction(this.dataset.tx)">'+
+           '<div class="avatar">'+shopIcon(merchant)+'</div>'+
+           '<div class="grow"><div class="itemname">'+esc(label)+'</div>'+
+           '<div class="line2">'+esc(merchant)+' · '+esc(location)+'</div></div>'+
+           '<div class="itemprice">'+fmt(item.item_amount_minor,item.currency||'RUB')+'</div>'+
+           '<span class="cat-chevron" aria-hidden="true">›</span></button>';
+         }).join('')+'</div>';
+     }
+   }
+   html+='<div class="footerhint" style="margin-top:16px">Показаны суммы позиций выбранной категории, а не общий итог каждого чека. Если чек содержит товары нескольких категорий, остальные товары сюда не включаются. Нажми покупку, чтобы открыть полный чек.</div>';
+   sheet(html);
+ }catch(e){
+   if(state.categoryLedgerContext!==context)return;
+   sheet('<div class="between"><h2>'+esc(categoryName)+'</h2>'+
+     '<button class="iconbtn" onclick="closeModal()">'+ico('close')+'</button></div>'+
+     '<div class="note warn" style="margin:15px 0">'+esc(e.message)+'</div>'+
+     '<button class="button secondary full" data-cat="'+esc(categoryId)+
+      '" data-place="'+esc(placeId||'')+'" onclick="openCategoryLedger(this.dataset.cat,this.dataset.place||null)">Повторить</button>');
+ }
+}
+function openCategoryTransaction(id){
+ return tx(id,state.categoryLedgerContext||null);
+}
+
+async function tx(id,returnContext=null){try{const v=await api('transaction?id='+encodeURIComponent(id));let t=v.transaction,items=v.items||[];state.selected={type:'tx',id,returnContext};sheet(`${returnContext?'<button type="button" class="txtlink" style="margin:0 0 12px" data-cat="'+esc(returnContext.categoryId)+'" data-place="'+esc(returnContext.placeId||'')+'" onclick="openCategoryLedger(this.dataset.cat,this.dataset.place||null)">← К выписке категории</button>':''}<div class="between"><div><div class="kicker">${esc(t.occurred_on)}</div><h2 style="margin:5px 0">${esc(t.merchant||'Покупка')}</h2></div><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><h1 style="margin:17px 0 2px">${fmt(t.amount_minor,t.currency)}</h1><div class="sub">${t.gross_amount_minor&&t.gross_amount_minor!==t.amount_minor?'Полный счёт '+fmt(t.gross_amount_minor,t.currency):'Личные расходы'}</div><div class="sectiontitle"><h2>Где куплено</h2></div>${selectPlace(t.place_id||'unknown',id,'saved')}<div class="sectiontitle"><h2>Позиции · ${items.length}</h2></div>${items.map((x,i)=>`<div class="itemedit"><div class="grow"><div class="itemeditname">${esc(x.title)}</div><div class="itemeditsum">${fmt(x.amount_minor,t.currency)}</div></div>${selectCategory(x.category_id,x.id,'saved',i,id)}</div>`).join('')||'<div class="empty">Нет товарных позиций</div>'}<div class="buttonrow" style="margin-top:24px"><button class="button secondary" onclick="closeModal()">Закрыть</button><button class="button danger" onclick="deleteTx('${id}')">Удалить</button></div>`)}catch(e){toast(e.message)}}
 async function openDraft(id){try{const v=await api('draft?id='+encodeURIComponent(id));let d=v.draft,p=d.payload||{},items=p.items||[];state.selected={type:'draft',id};const total=items.reduce((s,x)=>s+(Number(x.amount_minor)||0),0),mine=items.reduce((s,x)=>s+(Number(x.my_minor??x.amount_minor)||0),0);const payment=p.source==='marketplace_order'&&p.payment_status!=='paid';sheet(`<div class="between"><div><div class="kicker">Черновик · ${esc(p.date)}</div><h2 style="margin:5px 0">${esc(p.merchant||'Документ')}</h2></div><button class="iconbtn" onclick="closeModal()">${ico('close')}</button></div><div class="cards2" style="margin:16px 0"><div class="surface smallcard"><div class="kicker">Весь счёт</div><div class="number" style="font-size:21px">${fmt(p.total_minor,p.currency)}</div></div><div class="surface smallcard"><div class="kicker">Моя доля</div><div class="number" style="font-size:21px">${fmt(mine,p.currency)}</div></div></div>${total!==Number(p.total_minor)?'<div class="note warn">Суммы товаров не сходятся с итогом — подтверждение недоступно. Нужно исправить распознавание.</div>':''}${payment?'<div class="note warn" style="margin-bottom:12px">Оплата заказа ещё не подтверждена.</div><button class="button secondary full" onclick="markPaid(\''+id+'\')">Я проверил: заказ оплачен</button>':''}<div class="sectiontitle"><h2>Где куплено</h2></div>${selectPlace(p.place_id||'unknown',id,'draft')}<div class="sectiontitle"><h2>Товарные позиции · ${items.length}</h2></div>${items.map((x,i)=>`<div class="itemedit"><div class="grow"><div class="itemeditname">${esc(x.name)}</div><div class="itemeditsum">${fmt(x.amount_minor,p.currency)} · моё ${fmt(x.my_minor??x.amount_minor,p.currency)}</div><div style="margin-top:7px"><select class="select" onchange="updateShare('${id}',${i},this.value)">${Object.entries(shareNames).map(([k,n])=>`<option value="${k}" ${(x.split_mode||'mine')===k?'selected':''}>${n}</option>`).join('')}</select></div></div>${selectCategory(x.category,id,'draft',i)}</div>`).join('')||'<div class="empty">Нет товаров</div>'}${(p.warnings||[]).length?`<div class="note warn" style="margin:13px 0">${p.warnings.map(esc).join('<br>')}</div>`:''}<div class="buttonrow" style="margin-top:24px"><button class="button secondary" onclick="cancelDraft('${id}')">Отменить</button><button class="button positive" ${total!==Number(p.total_minor)||!mine||payment?'disabled':''} onclick="confirmDraft('${id}')">Подтвердить</button></div><div class="footerhint">Категории и доли сохраняются сразу; окончательно расход учитывается после подтверждения.</div>`)}catch(e){toast(e.message)}}
 async function updatePlace(kind,id,place){
  try{
   const result=await api('place',{kind,id,place});
   if(result.status!=='ok')throw Error('Место покупки не изменено');
   toast('Место покупки обновлено');
-  if(kind==='draft')await openDraft(id);else await tx(id);
+  if(kind==='draft')await openDraft(id);else await tx(id,state.selected?.type==='tx'?state.selected.returnContext:null);
   await refreshSilent();
  }catch(e){toast(e.message)}
 }
-async function updateCategory(kind,id,idx,category){try{await api('category',{kind,id,index:idx,category});toast('Категория обновлена');if(kind==='draft')await openDraft(id);else if(state.selected?.type==='tx')await tx(state.selected.id);await refreshSilent()}catch(e){toast(e.message)}}
+async function updateCategory(kind,id,idx,category){try{await api('category',{kind,id,index:idx,category});toast('Категория обновлена');if(kind==='draft')await openDraft(id);else if(state.selected?.type==='tx')await tx(state.selected.id,state.selected.returnContext);await refreshSilent()}catch(e){toast(e.message)}}
 async function updateShare(id,index,mode){try{await api('share',{id,index,mode});toast('Доля изменена');await openDraft(id)}catch(e){toast(e.message)}}
 async function markPaid(id){if(!confirm('Подтверждаешь, что заказ действительно оплачен?'))return;try{const result=await api('paid',{id});if(result.status!=='ok')throw Error('Статус оплаты не изменён');await openDraft(id)}catch(e){toast(e.message)}}
 async function confirmDraft(id){try{const result=await api('confirm',{id});if(result.status!=='ok'&&result.status!=='duplicate')throw Error('Документ не подтверждён: '+String(result.status));closeModal();state.tab='history';await load();toast('Покупка сохранена')}catch(e){toast(e.message)}}
