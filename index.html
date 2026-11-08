@@ -214,6 +214,9 @@ h2{font-size:18px;font-weight:750;letter-spacing:-.4px;line-height:1.3}
 @media(max-width:390px){.compare-card{padding:18px 16px}.compare-values strong{font-size:12px}.compare-values .kicker{font-size:9px}.trend-panel{padding:16px 10px}.analytics-bars{gap:3px}.analytics-week-value{font-size:9px}.analytics-bar-track{width:min(100%,35px)}.analytics-group-label{font-size:12px}.analytics-group{gap:8px}.analytics-group-icon{width:33px;height:33px;flex-basis:33px}.analytics-group .between strong{font-size:11px}}
 @media(prefers-reduced-motion:reduce){.analytics-bar-fill{transition:none}}
 
+.button:disabled{opacity:.48;cursor:not-allowed;box-shadow:none;transform:none}
+#clear-history-phrase{text-transform:uppercase;letter-spacing:.05em}
+#clear-history-submit{margin-top:3px;border:1px solid rgba(198,87,103,.35)}
 </style></head><body><main class="app" id="app"><div class="header"><div class="brand"><div class="brandmark">₽</div><div><div class="brandname">Мои финансы</div><div class="sub">Telegram Mini App</div></div></div><button class="iconbtn" aria-label="Обновить" onclick="load()">↻</button></div><div class="skeleton"></div></main><nav class="nav" id="nav" hidden></nav><button class="floatadd" id="add" hidden onclick="openAdd()" aria-label="Добавить расход">+</button><div id="modal"></div><div id="toast"></div><script>
 
 'use strict';
@@ -315,8 +318,8 @@ function history(){
      '<button class="chip '+(state.filter==='photo'?'on':'')+'" onclick="setFilter(\'photo\')">Чеки и заказы</button>'+
      '<button class="chip '+(state.filter==='manual'?'on':'')+'" onclick="setFilter(\'manual\')">Вручную</button></div>'+
    '<div class="surface compact-list" id="txlist">'+listTx(rows)+'</div>'+
-   '<button class="txtlink" style="display:block;margin:20px auto 4px;color:#b9757e" onclick="clearHistory()">Очистить историю</button>'+
-   '<div class="footerhint">Показаны до 400 последних покупок за выбранный месяц. Удаление требует подтверждения.</div>';
+   '<button class="txtlink" style="display:block;margin:20px auto 4px;color:#b9757e" aria-label="Очистить все покупки за все месяцы" onclick="clearHistory()">Очистить все покупки</button>'+
+   '<div class="footerhint">Показаны до 400 последних покупок за выбранный месяц. Очистка удаляет из истории и статистики все подтверждённые покупки этого профиля за все месяцы, но не переводы и черновики.</div>';
 }
 function drafts(){
  const batches=state.textBatches||[],photos=state.drafts||[];
@@ -1084,7 +1087,82 @@ async function deleteTransfer(id){
  }catch(e){toast(e.message)}
 }
 async function deleteTx(id){if(!confirm('Удалить эту покупку из истории и аналитики?'))return;try{let x=await api('delete-start',{action:'one',id});let y=await api('delete-confirm',{intentId:x.id});if(y.status!=='ok')throw Error('Не удалось удалить запись');closeModal();await load();toast('Покупка удалена')}catch(e){toast(e.message)}}
-async function clearHistory(){if(!confirm('Очистить всю историю расходов? Все ранее сохранённые покупки будут скрыты из статистики.'))return;if(prompt('Для подтверждения введи ОЧИСТИТЬ')!=='ОЧИСТИТЬ')return;try{const x=await api('delete-start',{action:'all'}),y=await api('delete-confirm',{intentId:x.id});if(y.status!=='ok')throw Error('Очистка не выполнена');await load();toast('История очищена')}catch(e){toast(e.message)}}
+
+async function clearHistory(){
+ // First request only creates a short-lived deletion intent. No purchase is deleted
+ // until the user explicitly confirms in the Mini App sheet.
+ sheet('<div class="between"><h2>Очистить все покупки</h2>'+
+   '<button type="button" class="iconbtn" aria-label="Закрыть" onclick="closeModal()">'+ico('close')+'</button></div>'+
+   '<div class="surface empty" style="margin-top:14px">Проверяю количество покупок…</div>');
+ try{
+   const start=await api('delete-start',{action:'all'});
+   if(start.status==='empty'){
+     sheet('<div class="between"><h2>История уже пуста</h2>'+
+       '<button type="button" class="iconbtn" aria-label="Закрыть" onclick="closeModal()">'+ico('close')+'</button></div>'+
+       '<div class="note" style="margin:16px 0">В твоём профиле нет подтверждённых покупок для очистки.</div>'+
+       '<button type="button" class="button secondary full" onclick="closeModal()">Закрыть</button>');
+     return;
+   }
+   if(start.status!=='ready'||!/^[0-9a-f-]{36}$/i.test(String(start.id||'')))
+     throw Error('Не удалось подготовить очистку. Попробуй ещё раз.');
+   const count=Number(start.count||0);
+   sheet('<div class="between"><div><div class="kicker">Управление историей</div>'+
+     '<h2 style="margin:5px 0">Очистить все покупки?</h2></div>'+
+     '<button type="button" class="iconbtn" aria-label="Закрыть" onclick="closeModal()">'+ico('close')+'</button></div>'+
+     '<div class="surface smallcard" style="margin:18px 0 12px">'+
+       '<div class="kicker">Будут скрыты из истории и аналитики</div>'+
+       '<div class="number" style="font-size:28px;margin-top:7px">'+count+' '+
+         ruPlural(count,'покупка','покупки','покупок')+'</div>'+
+       '<div class="sub" style="margin-top:6px">Все месяцы · только твой финансовый профиль</div></div>'+
+     '<div class="note warn" style="margin:12px 0 19px">'+
+       'Это действие нельзя отменить в приложении. Подтверждённые покупки исчезнут из истории и расчётов. '+
+       'Черновики, переводы и записи другого пользователя останутся без изменений.</div>'+
+     '<label class="formlabel" for="clear-history-phrase">Введи слово <strong>ОЧИСТИТЬ</strong> для подтверждения</label>'+
+     '<input class="input" id="clear-history-phrase" placeholder="ОЧИСТИТЬ" autocomplete="off" '+
+        'autocorrect="off" spellcheck="false" oninput="validateClearHistoryPhrase()" />'+
+     '<button type="button" class="button danger full" id="clear-history-submit" disabled '+
+       'data-intent="'+esc(start.id)+'" onclick="confirmClearHistory(this)">Очистить '+count+' '+
+       ruPlural(count,'покупку','покупки','покупок')+'</button>'+
+     '<button type="button" class="button secondary full" style="margin-top:9px" '+
+       'onclick="closeModal()">Отмена</button>');
+ }catch(e){
+   sheet('<div class="between"><h2>Не удалось подготовить очистку</h2>'+
+     '<button type="button" class="iconbtn" aria-label="Закрыть" onclick="closeModal()">'+ico('close')+'</button></div>'+
+     '<div class="note warn" style="margin:16px 0">'+esc(e.message||'Ошибка')+'</div>'+
+     '<button type="button" class="button secondary full" onclick="clearHistory()">Попробовать снова</button>'+
+     '<button type="button" class="button secondary full" style="margin-top:9px" onclick="closeModal()">Отмена</button>');
+ }
+}
+function validateClearHistoryPhrase(){
+ const input=el('clear-history-phrase'),button=el('clear-history-submit');
+ if(button)button.disabled=String(input?.value||'').trim().toLocaleUpperCase('ru-RU')!=='ОЧИСТИТЬ';
+}
+async function confirmClearHistory(button){
+ if(!button||button.disabled||String(el('clear-history-phrase')?.value||'').trim().toLocaleUpperCase('ru-RU')!=='ОЧИСТИТЬ')return;
+ const intentId=String(button.dataset.intent||'');
+ if(!/^[0-9a-f-]{36}$/i.test(intentId)){toast('Срок подтверждения истёк. Начни очистку заново.');return}
+ button.disabled=true;button.textContent='Очищаю…';
+ try{
+   const result=await api('delete-confirm',{intentId});
+   if(result.status!=='ok')throw Error(
+     result.status==='expired'?'Время подтверждения истекло. Начни очистку заново.':
+     result.status==='already_processed'?'Очистка уже выполнялась. Обнови историю.':
+     'Историю не удалось очистить. Попробуй ещё раз.');
+   // Month snapshots are cached separately from the visible history.
+   state.insights=null;state.insightsMonth=null;state.insightsError=null;
+   closeModal();
+   await load();
+   const count=Number(result.count||0);
+   toast('Очищено '+count+' '+ruPlural(count,'покупка','покупки','покупок'));
+ }catch(e){
+   sheet('<div class="between"><h2>История не очищена</h2>'+
+     '<button type="button" class="iconbtn" aria-label="Закрыть" onclick="closeModal()">'+ico('close')+'</button></div>'+
+     '<div class="note warn" style="margin:16px 0">'+esc(e.message||'Ошибка при очистке')+'</div>'+
+     '<button type="button" class="button secondary full" onclick="clearHistory()">Попробовать снова</button>'+
+     '<button type="button" class="button secondary full" style="margin-top:9px" onclick="closeModal()">Закрыть</button>');
+ }
+}
+
 
 function suggestManual(){
  const desc=String(el('newdesc')?.value||'').normalize('NFKC').toLocaleLowerCase('ru-RU').replace(/\s+/g,' ').trim();
